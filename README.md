@@ -4,6 +4,62 @@
 
 当前代码里存在的 HTTP 接口只有两个：`POST /api/chat` 和 `POST /api/voice/demo`。它们目前主要用于验证项目链路，不等同于生产可用接口。
 
+## 链路说明
+
+### 当前 Demo 链路
+
+```text
+用户语音
+  ↓
+HTTP 请求 /api/voice/demo
+  ↓
+VoiceController
+  ↓
+VoicePipelineService
+  ↓
+ASR 识别
+  ↓
+stable transcript
+  ↓
+ChatRequest
+  ↓
+RouterService
+  ↓
+QA 快速命中
+  ↓ 未命中
+规则路由 / 子 Agent Demo
+  ↓
+ChatResponse
+```
+
+### 目标链路
+
+```text
+用户语音
+  ↓
+ASR
+  ↓
+问题改写
+  ↓
+QA 快速命中
+  ↓
+智能路由
+  ↓
+会话状态
+  ↓
+子 Agent
+  ↓
+RAG / 工具调用
+  ↓
+LLM 回答
+  ↓
+兜底判断
+  ↓
+TTS
+  ↓
+语音回复
+```
+
 ## 当前已实现模块
 
 | 模块 | 当前状态 | 说明 |
