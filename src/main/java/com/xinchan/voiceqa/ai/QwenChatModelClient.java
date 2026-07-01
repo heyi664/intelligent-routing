@@ -17,7 +17,7 @@ public class QwenChatModelClient implements StreamingChatModelClient {
     public String streamAsText(ChatModelRequest request) {
         String apiKey = properties.getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("Qwen API key is required. Set DASHSCOPE_API_KEY or QWEN_API_KEY.");
+            throw new IllegalStateException("app.ai.api-key is required.");
         }
 
         QwenChatCompletionResponse response = transport.complete(

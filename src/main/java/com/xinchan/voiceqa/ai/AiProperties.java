@@ -1,7 +1,6 @@
 package com.xinchan.voiceqa.ai;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.core.env.Environment;
 
 @ConfigurationProperties(prefix = "app.ai")
 public class AiProperties {
@@ -49,17 +48,5 @@ public class AiProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
-    }
-
-    public String resolveApiKey(Environment environment) {
-        String configured = firstText(apiKey, environment.getProperty("DASHSCOPE_API_KEY"));
-        return firstText(configured, environment.getProperty("QWEN_API_KEY"));
-    }
-
-    private static String firstText(String preferred, String fallback) {
-        if (preferred != null && !preferred.isBlank()) {
-            return preferred;
-        }
-        return fallback == null ? "" : fallback;
     }
 }

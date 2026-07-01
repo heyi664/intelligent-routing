@@ -11,25 +11,25 @@ class AiConfigurationTest {
         .withConfiguration(AutoConfigurations.of(AiConfiguration.class));
 
     @Test
-    void defaultModelIsQwenFlashAndApiKeyComesFromDashscopeEnvironmentName() {
+    void defaultModelIsQwenFlashAndApiKeyCanComeFromConfigurationProperty() {
         contextRunner
-            .withPropertyValues("DASHSCOPE_API_KEY=test-api-key")
+            .withPropertyValues("app.ai.api-key=test-api-key")
             .run(context -> {
                 assertThat(context).hasSingleBean(StreamingChatModelClient.class);
                 AiProperties properties = context.getBean(AiProperties.class);
                 assertThat(properties.getProvider()).isEqualTo("qwen");
                 assertThat(properties.getModel()).isEqualTo("qwen3.6-flash");
-                assertThat(properties.resolveApiKey(context.getEnvironment())).isEqualTo("test-api-key");
+                assertThat(properties.getApiKey()).isEqualTo("test-api-key");
             });
     }
 
     @Test
-    void qwenApiKeyAliasIsSupportedWhenDashscopeKeyIsMissing() {
+    void qwenApiKeyCanBeOverriddenByConfigurationProperty() {
         contextRunner
-            .withPropertyValues("QWEN_API_KEY=alias-api-key")
+            .withPropertyValues("app.ai.api-key=alias-api-key")
             .run(context -> {
                 AiProperties properties = context.getBean(AiProperties.class);
-                assertThat(properties.resolveApiKey(context.getEnvironment())).isEqualTo("alias-api-key");
+                assertThat(properties.getApiKey()).isEqualTo("alias-api-key");
             });
     }
 }

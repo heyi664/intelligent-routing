@@ -40,7 +40,7 @@ src/main/java/com/xinchan/voiceqa/api/ChatController.java
 
 在项目中的作用：
 - 这是当前文本输入链路的唯一 HTTP 入口。
-- 用来验证 QA 快速命中、规则路由、会话状态、Agent 跳转和 Mock Agent 执行链路。
+- 用来验证 QA 快速命中、规则路由、会话状态、Agent 跳转和 Mock Agent。
 - 适合做开发调试和接口联调。
 
 当前实现程度：
@@ -101,33 +101,6 @@ Invoke-RestMethod `
   -Body '{"voiceSessionId":"v-1","conversationId":"c-voice-1","userId":"u-1","audioBytes":"AQID"}'
 ```
 
-## 开发环境要求
-
-| 工具 | 要求版本 | 当前验证版本 | 是否必需 |
-| --- | --- | --- | --- |
-| JDK | Java 17 | GraalVM CE Java 17.0.5 | 必需 |
-| Maven | 3.9.x | Apache Maven 3.9.16 | 必需 |
-| Spring Boot | 3.3.x | 3.3.13 | 项目依赖 |
-| Gradle | 不要求 | 本项目不使用 Gradle | 非必需 |
-
-本项目使用 Maven 构建，不需要安装 Gradle。
-
-推荐检查命令：
-
-```powershell
-java -version
-mvn -version
-```
-
-IDEA 配置建议：
-- Project SDK 选择 Java 17。
-- Maven home 可以使用本机 Maven，也可以使用 IDEA bundled Maven。
-- Maven import 后直接运行 `DemoApplication` 或执行 `mvn spring-boot:run`。
-
-VS Code 配置建议：
-- 安装 Java Extension Pack。
-- 确认终端中 `java -version` 和 `mvn -version` 可用。
-- 通过 Maven 面板或终端执行测试和启动命令。
 ## 运行方式
 
 ### 测试
@@ -165,21 +138,24 @@ spring.application.name=voice-agent-router-demo
 server.port=8080
 
 app.asr.provider=mock
-app.asr.region=ap-guangzhou
-app.asr.engine-model-type=16k_zh
-app.asr.voice-format=wav
-app.asr.sample-rate=16000
-app.asr.timeout-ms=5000
+app.asr.secret-id=${TENCENT_ASR_SECRET_ID:}
+app.asr.secret-key=${TENCENT_ASR_SECRET_KEY:}
+app.asr.region=${TENCENT_ASR_REGION:ap-guangzhou}
+app.asr.engine-model-type=${TENCENT_ASR_ENGINE_MODEL_TYPE:16k_zh}
+app.asr.voice-format=${TENCENT_ASR_VOICE_FORMAT:wav}
+app.asr.sample-rate=${TENCENT_ASR_SAMPLE_RATE:16000}
+app.asr.timeout-ms=${TENCENT_ASR_TIMEOUT_MS:5000}
 
 app.ai.provider=qwen
 app.ai.model=qwen3.6-flash
 app.ai.base-url=https://dashscope.aliyuncs.com/compatible-mode/v1
+app.ai.api-key=${DASHSCOPE_API_KEY:${QWEN_API_KEY:}}
 app.ai.timeout-ms=6000
 ```
 
-### Qwen / DashScope 环境变量
+#### Qwen / DashScope
 
-推荐：
+推荐通过本机环境变量提供密钥，由 `application.properties` 的占位符读取：
 
 ```text
 DASHSCOPE_API_KEY=你的 DashScope API Key
@@ -197,7 +173,7 @@ Windows 用户级设置：
 setx DASHSCOPE_API_KEY "你的 DashScope API Key"
 ```
 
-### 腾讯云 ASR 环境变量
+#### 腾讯云 ASR
 
 ```text
 TENCENT_ASR_SECRET_ID=你的腾讯云 SecretId
@@ -214,7 +190,7 @@ TENCENT_ASR_SAMPLE_RATE=16000
 TENCENT_ASR_TIMEOUT_MS=5000
 ```
 
-不要把真实密钥写入代码或提交仓库。设置用户级环境变量后，需要重启 IDEA、VS Code 或终端。
+不要把真实密钥写入代码或提交仓库。这里的做法是：先配置本机环境变量，再由 `application.properties` 读取并注入到 Spring 配置里。设置用户级环境变量后，需要重启 IDEA、VS Code 或终端。
 
 ## 核心代码结构
 

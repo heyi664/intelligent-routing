@@ -19,12 +19,12 @@ class AsrConfigurationTest {
     }
 
     @Test
-    void tencentProviderUsesTencentSdkClientAndEnvironmentCredentials() {
+    void tencentProviderUsesTencentSdkClientAndConfigurationProperties() {
         contextRunner
             .withPropertyValues(
                 "app.asr.provider=tencent",
-                "TENCENT_ASR_SECRET_ID=test-secret-id",
-                "TENCENT_ASR_SECRET_KEY=test-secret-key"
+                "app.asr.secret-id=test-secret-id",
+                "app.asr.secret-key=test-secret-key"
             )
             .run(context -> {
                 assertThat(context).hasSingleBean(AsrClient.class);
