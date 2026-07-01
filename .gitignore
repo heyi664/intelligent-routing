@@ -1,0 +1,6 @@
+﻿out/
+target/
+.idea/
+*.class
+config/*.env
+!config/*.env.example
