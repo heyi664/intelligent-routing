@@ -101,6 +101,33 @@ Invoke-RestMethod `
   -Body '{"voiceSessionId":"v-1","conversationId":"c-voice-1","userId":"u-1","audioBytes":"AQID"}'
 ```
 
+## 开发环境要求
+
+| 工具 | 要求版本 | 当前验证版本 | 是否必需 |
+| --- | --- | --- | --- |
+| JDK | Java 17 | GraalVM CE Java 17.0.5 | 必需 |
+| Maven | 3.9.x | Apache Maven 3.9.16 | 必需 |
+| Spring Boot | 3.3.x | 3.3.13 | 项目依赖 |
+| Gradle | 不要求 | 本项目不使用 Gradle | 非必需 |
+
+本项目使用 Maven 构建，不需要安装 Gradle。
+
+推荐检查命令：
+
+```powershell
+java -version
+mvn -version
+```
+
+IDEA 配置建议：
+- Project SDK 选择 Java 17。
+- Maven home 可以使用本机 Maven，也可以使用 IDEA bundled Maven。
+- Maven import 后直接运行 `DemoApplication` 或执行 `mvn spring-boot:run`。
+
+VS Code 配置建议：
+- 安装 Java Extension Pack。
+- 确认终端中 `java -version` 和 `mvn -version` 可用。
+- 通过 Maven 面板或终端执行测试和启动命令。
 ## 运行方式
 
 ### 测试
