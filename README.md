@@ -1,6 +1,6 @@
 # 语音客服智能问答 Demo
 
-本项目是基于 **Java 17 + Maven + Spring Boot 3.3.x** 的语音客服智能问答 Demo，业务背景以“渭南天然气客服”为例。
+本项目是基于 **Java 17 + Maven + Spring Boot 3.3.x** 的语音客服智能问答 Demo。
 
 当前代码里存在的 HTTP 接口只有两个：`POST /api/chat` 和 `POST /api/voice/demo`。它们目前主要用于验证项目链路，不等同于生产可用接口。
 
