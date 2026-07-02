@@ -3,6 +3,7 @@ package com.xinchan.voiceqa.routing;
 
 import org.springframework.stereotype.Service;
 import com.xinchan.voiceqa.agent.AgentRuntime;
+import com.xinchan.voiceqa.api.ChatProperties;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.api.ChatResponse;
 import com.xinchan.voiceqa.conversation.ConversationState;
@@ -18,19 +19,22 @@ public class RouterService {
     private final AgentSwitchPolicy switchPolicy;
     private final ConversationStateRepository stateRepository;
     private final AgentRuntime agentRuntime;
+    private final ChatProperties chatProperties;
 
     public RouterService(
         FastQaService fastQaService,
         RouterAgent routerAgent,
         AgentSwitchPolicy switchPolicy,
         ConversationStateRepository stateRepository,
-        AgentRuntime agentRuntime
+        AgentRuntime agentRuntime,
+        ChatProperties chatProperties
     ) {
         this.fastQaService = fastQaService;
         this.routerAgent = routerAgent;
         this.switchPolicy = switchPolicy;
         this.stateRepository = stateRepository;
         this.agentRuntime = agentRuntime;
+        this.chatProperties = chatProperties;
     }
 
     public ChatResponse route(ChatRequest request) {
@@ -41,12 +45,25 @@ public class RouterService {
             return new ChatResponse(request.conversationId(), RouteTarget.QA_AGENT, fastAnswer.get(), "QA");
         }
 
-        // RouterAgent 只给候选路由，最终跳转由 AgentSwitchPolicy 做确定性决策。
         ConversationState state = stateRepository.findOrCreate(request.conversationId(), request.userId());
+        if (chatProperties.manualMode()) {
+            RouteDecision decision = new RouteDecision(
+                chatProperties.getManualAgent(),
+                true,
+                false,
+                1.0,
+                request.message(),
+                "manual agent configured"
+            );
+            stateRepository.saveCurrentAgent(request.conversationId(), decision.target());
+            return agentRuntime.execute(request, decision);
+        }
+
+        // TODO: replace the rule-based RouterAgent bean with a Qwen structured-output RouterAgent.
+        // RouterAgent 只给候选路由，最终跳转由 AgentSwitchPolicy 做确定性决策。
         RouteCandidate candidate = routerAgent.classify(request, state);
         RouteDecision decision = switchPolicy.decide(state, candidate);
         stateRepository.saveCurrentAgent(request.conversationId(), decision.target());
         return agentRuntime.execute(request, decision);
     }
 }
-

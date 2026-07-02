@@ -1,6 +1,7 @@
 package com.xinchan.voiceqa;
 
 import com.xinchan.voiceqa.agent.MockAgentRuntime;
+import com.xinchan.voiceqa.api.ChatProperties;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.api.ChatResponse;
 import com.xinchan.voiceqa.asr.AsrResult;
@@ -58,7 +59,7 @@ public class DemoTestRunner {
 
         assertEquals(RouteTarget.SAFETY_AGENT, response.targetAgent(), "Safety question should switch to safety agent");
         assertEquals(1, fixture.agentRuntime.executionCount(), "Non-QA route should execute one agent");
-        assertContains(response.answer(), "SAFETY_AGENT", "Demo agent answer should identify executed agent");
+        assertEquals(RouteTarget.SAFETY_AGENT.name(), response.source(), "Demo agent source should identify executed agent");
     }
 
     private void voicePipelineRoutesOnlyStableTranscript() {
@@ -137,7 +138,8 @@ public class DemoTestRunner {
             new RuleBasedRouterAgent(),
             new AgentSwitchPolicy(),
             repository,
-            agentRuntime
+            agentRuntime,
+            ChatProperties.router()
         );
         return new TestFixture(repository, agentRuntime, routerService);
     }
