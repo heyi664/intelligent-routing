@@ -28,19 +28,6 @@ public class MockAgentRuntime implements AgentRuntime {
         }
     }
 
-    public MockAgentRuntime(ConversationStateRepository stateRepository) {
-        this(
-            stateRepository,
-            List.of(
-                new PaymentAgent(),
-                new SafetyAgent(),
-                new BusinessDecisionAgent(),
-                new RagAgent(),
-                new ClarificationAgent(),
-                new FallbackAgent()
-            )
-        );
-    }
 
     @Override
     public ChatResponse execute(ChatRequest request, RouteDecision decision) {

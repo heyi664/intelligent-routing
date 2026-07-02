@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LlmAgentResponderTest {
 
     @Test
-    void clarificationAgentIntroducesItselfThroughLlmSystemPrompt() {
+    void clarificationAgentIntroducesItselfThroughLlmSystemPrompt(CapturedOutput output) {
         CapturingChatModelClient client = new CapturingChatModelClient("我是澄清助手，可以帮你判断业务类型。");
         ClarificationAgent agent = new ClarificationAgent(
             new LlmAgentResponder(new SpringAiGateway(client), new AgentPromptFactory())
@@ -34,6 +34,9 @@ class LlmAgentResponderTest {
         assertTrue(client.lastRequest.systemPrompt().contains("先简短介绍自己"));
         assertTrue(client.lastRequest.userPrompt().contains("你是谁"));
         assertEquals("c-llm-1", client.lastRequest.conversationId());
+        assertTrue(output.getOut().contains("LLM agent request"));
+        assertTrue(output.getOut().contains("CLARIFICATION_AGENT"));
+        assertTrue(output.getOut().contains("c-llm-1"));
     }
 
     @Test

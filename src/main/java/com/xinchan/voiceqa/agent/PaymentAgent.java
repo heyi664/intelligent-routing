@@ -10,9 +10,6 @@ import org.springframework.stereotype.Component;
 public class PaymentAgent implements ChatAgent {
     private final LlmAgentResponder responder;
 
-    public PaymentAgent() {
-        this(LlmAgentResponder.localOnly());
-    }
 
     @Autowired
     public PaymentAgent(LlmAgentResponder responder) {

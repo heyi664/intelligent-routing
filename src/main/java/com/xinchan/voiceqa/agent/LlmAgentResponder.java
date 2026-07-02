@@ -15,22 +15,13 @@ public class LlmAgentResponder {
 
     private final SpringAiGateway aiGateway;
     private final AgentPromptFactory promptFactory;
-    private final boolean enabled;
-
     public LlmAgentResponder(SpringAiGateway aiGateway, AgentPromptFactory promptFactory) {
         this.aiGateway = aiGateway;
         this.promptFactory = promptFactory;
-        this.enabled = true;
-    }
-
-    private LlmAgentResponder() {
-        this.aiGateway = null;
-        this.promptFactory = new AgentPromptFactory();
-        this.enabled = false;
-    }
-
-    public static LlmAgentResponder localOnly() {
-        return new LlmAgentResponder();
+        log.info("LLM agent responder initialized aiGateway={} promptFactory={}",
+            aiGateway.getClass().getName(),
+            promptFactory.getClass().getName()
+        );
     }
 
     public String answer(
@@ -39,10 +30,12 @@ public class LlmAgentResponder {
         RouteDecision decision,
         String fallbackAnswer
     ) {
-        if (!enabled) {
-            return fallbackAnswer;
-        }
         try {
+            log.info(
+                "LLM agent request targetAgent={} conversationId={}",
+                target,
+                request.conversationId()
+            );
             String answer = aiGateway.streamAsText(new ChatModelRequest(
                 promptFactory.systemPrompt(target),
                 promptFactory.userPrompt(request, decision),
@@ -57,6 +50,9 @@ public class LlmAgentResponder {
                 );
                 return fallbackAnswer;
             }
+            log.info("the answer is {}",
+                    answer
+            );
             return answer;
         } catch (RuntimeException ex) {
             log.warn(

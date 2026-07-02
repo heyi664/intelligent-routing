@@ -1,6 +1,15 @@
 package com.xinchan.voiceqa;
 
+import com.xinchan.voiceqa.agent.BusinessDecisionAgent;
+import com.xinchan.voiceqa.agent.ChatAgent;
+import com.xinchan.voiceqa.agent.ClarificationAgent;
+import com.xinchan.voiceqa.agent.FallbackAgent;
+import com.xinchan.voiceqa.agent.LlmAgentResponder;
 import com.xinchan.voiceqa.agent.MockAgentRuntime;
+import com.xinchan.voiceqa.agent.PaymentAgent;
+import com.xinchan.voiceqa.agent.RagAgent;
+import com.xinchan.voiceqa.agent.SafetyAgent;
+import com.xinchan.voiceqa.ai.SpringAiGateway;
 import com.xinchan.voiceqa.api.ChatProperties;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.api.ChatResponse;
@@ -132,7 +141,7 @@ public class DemoTestRunner {
     }
     private TestFixture newFixture() {
         ConversationStateRepository repository = new InMemoryConversationStateRepository();
-        MockAgentRuntime agentRuntime = new MockAgentRuntime(repository);
+        MockAgentRuntime agentRuntime = new MockAgentRuntime(repository, localAgents());
         RouterService routerService = new RouterService(
             new InMemoryFastQaService(),
             new RuleBasedRouterAgent(),
@@ -144,6 +153,26 @@ public class DemoTestRunner {
         return new TestFixture(repository, agentRuntime, routerService);
     }
 
+
+    private LlmAgentResponder localResponder() {
+        return new LlmAgentResponder(
+            new SpringAiGateway(request -> {
+                throw new IllegalStateException("local test responder");
+            }),
+            new com.xinchan.voiceqa.agent.AgentPromptFactory()
+        );
+    }
+
+    private List<ChatAgent> localAgents() {
+        return List.of(
+            new PaymentAgent(localResponder()),
+            new SafetyAgent(localResponder()),
+            new BusinessDecisionAgent(localResponder()),
+            new RagAgent(localResponder()),
+            new ClarificationAgent(localResponder()),
+            new FallbackAgent(localResponder())
+        );
+    }
 
     private void assertHasAnnotation(String simpleName, Class<?> type, String message) {
         for (java.lang.annotation.Annotation annotation : type.getAnnotations()) {

@@ -10,9 +10,6 @@ import org.springframework.stereotype.Component;
 public class BusinessDecisionAgent implements ChatAgent {
     private final LlmAgentResponder responder;
 
-    public BusinessDecisionAgent() {
-        this(LlmAgentResponder.localOnly());
-    }
 
     @Autowired
     public BusinessDecisionAgent(LlmAgentResponder responder) {

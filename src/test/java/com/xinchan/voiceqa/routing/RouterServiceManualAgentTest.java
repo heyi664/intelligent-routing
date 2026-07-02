@@ -1,6 +1,15 @@
 package com.xinchan.voiceqa.routing;
 
+import com.xinchan.voiceqa.agent.BusinessDecisionAgent;
+import com.xinchan.voiceqa.agent.ChatAgent;
+import com.xinchan.voiceqa.agent.ClarificationAgent;
+import com.xinchan.voiceqa.agent.FallbackAgent;
+import com.xinchan.voiceqa.agent.LlmAgentResponder;
 import com.xinchan.voiceqa.agent.MockAgentRuntime;
+import com.xinchan.voiceqa.agent.PaymentAgent;
+import com.xinchan.voiceqa.agent.RagAgent;
+import com.xinchan.voiceqa.agent.SafetyAgent;
+import com.xinchan.voiceqa.ai.SpringAiGateway;
 import com.xinchan.voiceqa.api.ChatProperties;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.api.ChatResponse;
@@ -16,7 +25,7 @@ class RouterServiceManualAgentTest {
     @Test
     void manualAgentModeSendsNonQaMessagesToConfiguredAgent() {
         InMemoryConversationStateRepository repository = new InMemoryConversationStateRepository();
-        MockAgentRuntime agentRuntime = new MockAgentRuntime(repository);
+        MockAgentRuntime agentRuntime = new MockAgentRuntime(repository, localAgents());
         RouterService routerService = new RouterService(
             new InMemoryFastQaService(),
             new RuleBasedRouterAgent(),
@@ -41,7 +50,7 @@ class RouterServiceManualAgentTest {
     @Test
     void manualAgentModeKeepsFastQaBeforeAgentRuntime() {
         InMemoryConversationStateRepository repository = new InMemoryConversationStateRepository();
-        MockAgentRuntime agentRuntime = new MockAgentRuntime(repository);
+        MockAgentRuntime agentRuntime = new MockAgentRuntime(repository, localAgents());
         RouterService routerService = new RouterService(
             new InMemoryFastQaService(),
             new RuleBasedRouterAgent(),
@@ -60,5 +69,26 @@ class RouterServiceManualAgentTest {
         assertEquals(RouteTarget.QA_AGENT, response.targetAgent());
         assertEquals("QA", response.source());
         assertEquals(0, agentRuntime.executionCount());
+    }
+
+
+    private LlmAgentResponder localResponder() {
+        return new LlmAgentResponder(
+            new SpringAiGateway(request -> {
+                throw new IllegalStateException("local test responder");
+            }),
+            new com.xinchan.voiceqa.agent.AgentPromptFactory()
+        );
+    }
+
+    private java.util.List<ChatAgent> localAgents() {
+        return java.util.List.of(
+            new PaymentAgent(localResponder()),
+            new SafetyAgent(localResponder()),
+            new BusinessDecisionAgent(localResponder()),
+            new RagAgent(localResponder()),
+            new ClarificationAgent(localResponder()),
+            new FallbackAgent(localResponder())
+        );
     }
 }

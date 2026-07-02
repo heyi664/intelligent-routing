@@ -10,9 +10,6 @@ import org.springframework.stereotype.Component;
 public class FallbackAgent implements ChatAgent {
     private final LlmAgentResponder responder;
 
-    public FallbackAgent() {
-        this(LlmAgentResponder.localOnly());
-    }
 
     @Autowired
     public FallbackAgent(LlmAgentResponder responder) {

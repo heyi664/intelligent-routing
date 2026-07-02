@@ -10,9 +10,6 @@ import org.springframework.stereotype.Component;
 public class SafetyAgent implements ChatAgent {
     private final LlmAgentResponder responder;
 
-    public SafetyAgent() {
-        this(LlmAgentResponder.localOnly());
-    }
 
     @Autowired
     public SafetyAgent(LlmAgentResponder responder) {

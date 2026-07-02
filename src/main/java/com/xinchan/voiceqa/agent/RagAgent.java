@@ -10,9 +10,6 @@ import org.springframework.stereotype.Component;
 public class RagAgent implements ChatAgent {
     private final LlmAgentResponder responder;
 
-    public RagAgent() {
-        this(LlmAgentResponder.localOnly());
-    }
 
     @Autowired
     public RagAgent(LlmAgentResponder responder) {

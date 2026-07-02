@@ -10,9 +10,6 @@ import org.springframework.stereotype.Component;
 public class ClarificationAgent implements ChatAgent {
     private final LlmAgentResponder responder;
 
-    public ClarificationAgent() {
-        this(LlmAgentResponder.localOnly());
-    }
 
     @Autowired
     public ClarificationAgent(LlmAgentResponder responder) {
