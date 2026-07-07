@@ -1,11 +1,13 @@
 package com.xinchan.voiceqa.routing;
 
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.conversation.ConversationState;
 
 @Service
+@ConditionalOnProperty(prefix = "app.chat", name = "router-provider", havingValue = "rule", matchIfMissing = true)
 public class RuleBasedRouterAgent implements RouterAgent {
 
     @Override
@@ -66,3 +68,4 @@ public class RuleBasedRouterAgent implements RouterAgent {
         return false;
     }
 }
+

@@ -29,7 +29,7 @@ class RouterServiceManualAgentTest {
         RouterService routerService = new RouterService(
             new InMemoryFastQaService(),
             new RuleBasedRouterAgent(),
-            new AgentSwitchPolicy(),
+            new AgentSwitchPolicy(new com.xinchan.voiceqa.api.ChatProperties()),
             repository,
             agentRuntime,
             ChatProperties.manual(RouteTarget.PAYMENT_AGENT)
@@ -54,7 +54,7 @@ class RouterServiceManualAgentTest {
         RouterService routerService = new RouterService(
             new InMemoryFastQaService(),
             new RuleBasedRouterAgent(),
-            new AgentSwitchPolicy(),
+            new AgentSwitchPolicy(new com.xinchan.voiceqa.api.ChatProperties()),
             repository,
             agentRuntime,
             ChatProperties.manual(RouteTarget.SAFETY_AGENT)

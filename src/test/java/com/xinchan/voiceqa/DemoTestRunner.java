@@ -145,7 +145,7 @@ public class DemoTestRunner {
         RouterService routerService = new RouterService(
             new InMemoryFastQaService(),
             new RuleBasedRouterAgent(),
-            new AgentSwitchPolicy(),
+            new AgentSwitchPolicy(new com.xinchan.voiceqa.api.ChatProperties()),
             repository,
             agentRuntime,
             ChatProperties.router()
