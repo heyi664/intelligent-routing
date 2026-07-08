@@ -1,14 +1,15 @@
 package com.xinchan.voiceqa.conversation;
 
-
-import org.springframework.stereotype.Repository;
 import com.xinchan.voiceqa.routing.RouteTarget;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Repository
+@ConditionalOnProperty(prefix = "app.memory", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class InMemoryConversationStateRepository implements ConversationStateRepository {
     private final Map<String, ConversationState> states = new ConcurrentHashMap<>();
 

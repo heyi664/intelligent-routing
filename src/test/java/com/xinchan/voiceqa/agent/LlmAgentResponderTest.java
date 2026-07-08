@@ -4,6 +4,11 @@ import com.xinchan.voiceqa.ai.ChatModelRequest;
 import com.xinchan.voiceqa.ai.SpringAiGateway;
 import com.xinchan.voiceqa.ai.StreamingChatModelClient;
 import com.xinchan.voiceqa.api.ChatRequest;
+import com.xinchan.voiceqa.memory.ChatTurn;
+import com.xinchan.voiceqa.memory.ConversationMemoryService;
+import com.xinchan.voiceqa.memory.InMemoryChatHistoryRepository;
+import com.xinchan.voiceqa.memory.MemoryProperties;
+import com.xinchan.voiceqa.memory.NoopConversationSummaryService;
 import com.xinchan.voiceqa.routing.RouteDecision;
 import com.xinchan.voiceqa.routing.RouteTarget;
 import org.junit.jupiter.api.Test;
@@ -12,6 +17,8 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import java.time.Instant;
+
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(OutputCaptureExtension.class)
@@ -63,6 +70,36 @@ class LlmAgentResponderTest {
         assertTrue(output.getOut().contains("missing key"));
     }
 
+    @Test
+    void includesRecentConversationTurnsInAgentPrompt() {
+        CapturingChatModelClient client = new CapturingChatModelClient("assistant answer");
+        InMemoryChatHistoryRepository historyRepository = new InMemoryChatHistoryRepository();
+        MemoryProperties properties = new MemoryProperties();
+        properties.setRecentTurnLimit(2);
+        ConversationMemoryService memoryService = new ConversationMemoryService(
+            historyRepository,
+            new NoopConversationSummaryService(),
+            properties
+        );
+        memoryService.recordTurn(new ChatTurn(null, "c-memory", "u-1", "previous user", "previous assistant", RouteTarget.PAYMENT_AGENT, "PAYMENT_AGENT", Instant.parse("2026-07-08T00:00:00Z")));
+        LlmAgentResponder responder = new LlmAgentResponder(
+            new SpringAiGateway(client),
+            new AgentPromptFactory(),
+            memoryService
+        );
+
+        responder.answer(
+            RouteTarget.PAYMENT_AGENT,
+            new ChatRequest("c-memory", "u-1", "current user"),
+            RouteDecision.to(RouteTarget.PAYMENT_AGENT),
+            "fallback"
+        );
+
+        assertTrue(client.lastRequest.userPrompt().contains("conversationMemory:"));
+        assertTrue(client.lastRequest.userPrompt().contains("U: previous user"));
+        assertTrue(client.lastRequest.userPrompt().contains("A: previous assistant"));
+        assertTrue(client.lastRequest.userPrompt().contains("current user"));
+    }
     private static class CapturingChatModelClient implements StreamingChatModelClient {
         private final String answer;
         private ChatModelRequest lastRequest;

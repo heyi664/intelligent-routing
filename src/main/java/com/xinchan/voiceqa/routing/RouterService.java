@@ -1,15 +1,21 @@
 package com.xinchan.voiceqa.routing;
 
-
-import org.springframework.stereotype.Service;
 import com.xinchan.voiceqa.agent.AgentRuntime;
 import com.xinchan.voiceqa.api.ChatProperties;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.api.ChatResponse;
 import com.xinchan.voiceqa.conversation.ConversationState;
 import com.xinchan.voiceqa.conversation.ConversationStateRepository;
+import com.xinchan.voiceqa.memory.ChatTurn;
+import com.xinchan.voiceqa.memory.ConversationMemoryService;
+import com.xinchan.voiceqa.memory.InMemoryChatHistoryRepository;
+import com.xinchan.voiceqa.memory.MemoryProperties;
+import com.xinchan.voiceqa.memory.NoopConversationSummaryService;
 import com.xinchan.voiceqa.qa.FastQaService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.Optional;
 
 @Service
@@ -20,6 +26,7 @@ public class RouterService {
     private final ConversationStateRepository stateRepository;
     private final AgentRuntime agentRuntime;
     private final ChatProperties chatProperties;
+    private final ConversationMemoryService memoryService;
 
     public RouterService(
         FastQaService fastQaService,
@@ -29,20 +36,47 @@ public class RouterService {
         AgentRuntime agentRuntime,
         ChatProperties chatProperties
     ) {
+        this(
+            fastQaService,
+            routerAgent,
+            switchPolicy,
+            stateRepository,
+            agentRuntime,
+            chatProperties,
+            new ConversationMemoryService(
+                new InMemoryChatHistoryRepository(),
+                new NoopConversationSummaryService(),
+                new MemoryProperties()
+            )
+        );
+    }
+
+    @Autowired
+    public RouterService(
+        FastQaService fastQaService,
+        RouterAgent routerAgent,
+        AgentSwitchPolicy switchPolicy,
+        ConversationStateRepository stateRepository,
+        AgentRuntime agentRuntime,
+        ChatProperties chatProperties,
+        ConversationMemoryService memoryService
+    ) {
         this.fastQaService = fastQaService;
         this.routerAgent = routerAgent;
         this.switchPolicy = switchPolicy;
         this.stateRepository = stateRepository;
         this.agentRuntime = agentRuntime;
         this.chatProperties = chatProperties;
+        this.memoryService = memoryService;
     }
 
     public ChatResponse route(ChatRequest request) {
-        // QA 快速命中必须早于模型和 Agent 调用，用来保护 <=200ms 的首字符目标。
         Optional<String> fastAnswer = fastQaService.findAnswer(request.message());
         if (fastAnswer.isPresent()) {
             stateRepository.saveCurrentAgent(request.conversationId(), RouteTarget.QA_AGENT);
-            return new ChatResponse(request.conversationId(), RouteTarget.QA_AGENT, fastAnswer.get(), "QA");
+            ChatResponse response = new ChatResponse(request.conversationId(), RouteTarget.QA_AGENT, fastAnswer.get(), "QA");
+            recordTurn(request, response);
+            return response;
         }
 
         ConversationState state = stateRepository.findOrCreate(request.conversationId(), request.userId());
@@ -56,14 +90,29 @@ public class RouterService {
                 "manual agent configured"
             );
             stateRepository.saveCurrentAgent(request.conversationId(), decision.target());
-            return agentRuntime.execute(request, decision);
+            ChatResponse response = agentRuntime.execute(request, decision);
+            recordTurn(request, response);
+            return response;
         }
 
-        // TODO: replace the rule-based RouterAgent bean with a Qwen structured-output RouterAgent.
-        // RouterAgent 只给候选路由，最终跳转由 AgentSwitchPolicy 做确定性决策。
         RouteCandidate candidate = routerAgent.classify(request, state);
         RouteDecision decision = switchPolicy.decide(state, candidate);
         stateRepository.saveCurrentAgent(request.conversationId(), decision.target());
-        return agentRuntime.execute(request, decision);
+        ChatResponse response = agentRuntime.execute(request, decision);
+        recordTurn(request, response);
+        return response;
+    }
+
+    private void recordTurn(ChatRequest request, ChatResponse response) {
+        memoryService.recordTurn(new ChatTurn(
+            null,
+            request.conversationId(),
+            request.userId(),
+            request.message(),
+            response.answer(),
+            response.targetAgent(),
+            response.source(),
+            Instant.now()
+        ));
     }
 }
