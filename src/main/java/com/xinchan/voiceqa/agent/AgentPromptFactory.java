@@ -1,6 +1,7 @@
 package com.xinchan.voiceqa.agent;
 
 import com.xinchan.voiceqa.api.ChatRequest;
+import com.xinchan.voiceqa.memory.ConversationMemory;
 import com.xinchan.voiceqa.routing.RouteDecision;
 import com.xinchan.voiceqa.routing.RouteTarget;
 import org.springframework.stereotype.Component;
@@ -53,14 +54,21 @@ public class AgentPromptFactory {
     }
 
     public String userPrompt(ChatRequest request, RouteDecision decision) {
+        return userPrompt(request, decision, ConversationMemory.empty());
+    }
+
+    public String userPrompt(ChatRequest request, RouteDecision decision, ConversationMemory memory) {
+        String memoryBlock = memory == null ? "" : memory.toPromptBlock();
         return """
             conversationId: %s
             userId: %s
             targetAgent: %s
             routeReason: %s
             rewrittenQuestion: %s
+            conversationMemory:
+            %s
 
-            用户问题：
+            userMessage:
             %s
             """.formatted(
             request.conversationId(),
@@ -68,6 +76,7 @@ public class AgentPromptFactory {
             decision.target(),
             decision.reason(),
             decision.rewrittenQuestion(),
+            memoryBlock,
             request.message()
         );
     }
