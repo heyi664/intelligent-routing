@@ -391,7 +391,7 @@ mvn test
 当前最新验证结果：
 
 ```text
-Tests run: 33, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -434,9 +434,9 @@ src/main/java/com/xinchan/voiceqa
 | P0 | 完整 fallback 与转人工策略 | 部分完成 | 覆盖低置信度路由、RAG 无结果、ASR 失败、模型超时、用户意图不清等场景。 |
 | P1 | RAG 知识库第一版 | TODO | 接入本地 Markdown/JSON 或数据库知识库，完成加载、切分、检索、引用来源返回。 |
 | P1 | 会话状态与缓存持久化 | 已完成第一版 | PG 记录聊天轮次和会话状态，Redis 缓存当前会话状态并支持 TTL/密码；后续补 LLM 摘要生成与更完整的运维配置。 |
-| P1 | 指标、日志与可观测性 | TODO | 记录 QA、路由、Agent、LLM、RAG、fallback 的耗时、命中情况和错误原因。 |
+| P1 | 指标、日志与可观测性 | 已完成第一版 | 已提供 `GET /api/observability/metrics`，并记录路由、Agent LLM、语音会话、ASR、错误、流式 delta 的基础计数和最近耗时；后续可接入 Micrometer/Actuator、Prometheus、链路追踪和更完整的耗时分位统计。 |
 | P2 | 正式语音入口 | TODO | 替换 JSON + Base64 Demo，支持 multipart 音频上传，后续扩展 WebSocket 实时 ASR。 |
-| P2 | 流式响应 | TODO | 让 Qwen/Agent 支持流式输出，接口可考虑 SSE，并记录首 token/首字符时间。 |
+| P2 | 流式响应 | 已完成第一版 | Qwen HTTP 传输层支持 SSE `stream=true`，Router/Agent/LLM 链路支持 `answerStreaming`；WebSocket 语音入口返回 `chat_start`、`chat_delta`、`chat_done`，页面支持增量展示。后续可补首 token 耗时、HTTP SSE 文本接口和真正实时 ASR 增量转写。 |
 | P2 | 管理配置能力 | TODO | 提供 QA、Prompt、Agent 开关、路由阈值、知识库文档、指标查看等管理入口。 |
 | P3 | 权限与审计 | TODO | 对管理入口、配置修改、知识库更新、人工转接等操作做权限控制和审计记录。 |
 | P3 | TTS 语音回复 | TODO | 在文本回答之后接入 TTS，形成完整语音回复链路。 |
@@ -448,4 +448,4 @@ src/main/java/com/xinchan/voiceqa
 3. 增加安全类高风险关键词兜底，减少模型低置信度误判。
 4. 完成超过轮数后的 LLM 会话摘要生成，并写入 `conversation_summary`。
 5. 接入第一版本地 RAG 知识库。
-6. 增加请求链路指标，包括 QA、路由、LLM、Agent、fallback 的耗时和错误原因。
+6. 将轻量指标升级为正式可观测性方案：接入 Micrometer/Actuator、Prometheus/Grafana，并补充首 token 耗时、分位耗时和 traceId 链路查询。
