@@ -100,9 +100,42 @@ class LlmAgentResponderTest {
         assertTrue(client.lastRequest.userPrompt().contains("A: previous assistant"));
         assertTrue(client.lastRequest.userPrompt().contains("current user"));
     }
+    @Test
+    void streamsLlmDeltasAndReturnsFullAnswer() {
+        java.util.concurrent.atomic.AtomicReference<ChatModelRequest> lastRequest = new java.util.concurrent.atomic.AtomicReference<>();
+        StreamingChatModelClient client = new StreamingChatModelClient() {
+            @Override
+            public String streamAsText(ChatModelRequest request) {
+                throw new AssertionError("streaming path should use delta callback");
+            }
+
+            @Override
+            public String streamAsText(ChatModelRequest request, java.util.function.Consumer<String> deltaConsumer) {
+                lastRequest.set(request);
+                deltaConsumer.accept("part-1 ");
+                deltaConsumer.accept("part-2");
+                return "part-1 part-2";
+            }
+        };
+        LlmAgentResponder responder = new LlmAgentResponder(new SpringAiGateway(client), new AgentPromptFactory());
+        java.util.List<String> deltas = new java.util.ArrayList<>();
+
+        String answer = responder.answerStreaming(
+            RouteTarget.SAFETY_AGENT,
+            new ChatRequest("c-stream-agent", "u-1", "current user", "trace-agent-1"),
+            RouteDecision.to(RouteTarget.SAFETY_AGENT),
+            "fallback",
+            deltas::add
+        );
+
+        assertEquals("part-1 part-2", answer);
+        assertEquals(java.util.List.of("part-1 ", "part-2"), deltas);
+        assertEquals("trace-agent-1", lastRequest.get().traceId());
+    }
     private static class CapturingChatModelClient implements StreamingChatModelClient {
         private final String answer;
         private ChatModelRequest lastRequest;
+        private java.util.List<String> streamParts;
 
         private CapturingChatModelClient(String answer) {
             this.answer = answer;

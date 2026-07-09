@@ -29,4 +29,13 @@ public class BusinessDecisionAgent implements ChatAgent {
                 + "。Demo 阶段如果没有真实指标，我会先给出分析框架。"
         );
     }
+
+    @Override
+    public String answerStreaming(ChatRequest request, RouteDecision decision, java.util.function.Consumer<String> deltaConsumer) {
+        return responder.answerStreaming(target(), request, decision,
+            "业务决策助手：你好，我负责供气负荷、异常趋势、风险等级和调度建议分析。"
+                + "当前问题是：" + request.message()
+                + "。Demo 阶段如果没有真实指标，我会先给出分析框架。"
+            , deltaConsumer);
+    }
 }

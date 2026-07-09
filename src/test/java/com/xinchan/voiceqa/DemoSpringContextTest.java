@@ -12,7 +12,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.NONE,
+    properties = {"app.memory.enabled=false", "app.asr.provider=mock"}
+)
 class DemoSpringContextTest {
     @Autowired
     private RouterService routerService;
@@ -25,7 +28,7 @@ class DemoSpringContextTest {
         ChatResponse textResponse = routerService.route(new ChatRequest(
             "spring-text-1",
             "u-1",
-            "天然气缴费怎么操作？"
+            "natural gas \u7f34\u8d39"
         ));
         ChatResponse voiceResponse = voicePipelineService.handle(new VoiceChatRequest(
             "spring-voice-1",

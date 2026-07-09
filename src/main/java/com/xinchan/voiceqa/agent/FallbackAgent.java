@@ -28,4 +28,12 @@ public class FallbackAgent implements ChatAgent {
                 + "你可以换一种说法、补充信息，或选择转人工客服。"
         );
     }
+
+    @Override
+    public String answerStreaming(ChatRequest request, RouteDecision decision, java.util.function.Consumer<String> deltaConsumer) {
+        return responder.answerStreaming(target(), request, decision,
+            "兜底助手：你好，当前服务暂时无法完整处理这个问题，我已记录你的诉求。"
+                + "你可以换一种说法、补充信息，或选择转人工客服。"
+            , deltaConsumer);
+    }
 }

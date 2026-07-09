@@ -12,6 +12,7 @@ import com.xinchan.voiceqa.routing.RouteTarget;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 @Service
 public class MockAgentRuntime implements AgentRuntime {
@@ -31,6 +32,15 @@ public class MockAgentRuntime implements AgentRuntime {
 
     @Override
     public ChatResponse execute(ChatRequest request, RouteDecision decision) {
+        return executeInternal(request, decision, null);
+    }
+
+    @Override
+    public ChatResponse executeStreaming(ChatRequest request, RouteDecision decision, Consumer<String> deltaConsumer) {
+        return executeInternal(request, decision, deltaConsumer);
+    }
+
+    private ChatResponse executeInternal(ChatRequest request, RouteDecision decision, Consumer<String> deltaConsumer) {
         executionCount++;
         stateRepository.saveCurrentAgent(request.conversationId(), decision.target());
 
@@ -38,10 +48,13 @@ public class MockAgentRuntime implements AgentRuntime {
         if (agent == null) {
             throw new IllegalStateException("No agent registered for target " + decision.target());
         }
+        String answer = deltaConsumer == null
+            ? agent.answer(request, decision)
+            : agent.answerStreaming(request, decision, deltaConsumer);
         return new ChatResponse(
             request.conversationId(),
             agent.target(),
-            agent.answer(request, decision),
+            answer,
             agent.target().name()
         );
     }

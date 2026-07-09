@@ -39,7 +39,7 @@ public class AiProperties {
     }
 
     public void setApiKey(String apiKey) {
-        this.apiKey = apiKey;
+        this.apiKey = sanitizeHeaderCredential(apiKey);
     }
 
     public int getTimeoutMs() {
@@ -48,5 +48,9 @@ public class AiProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    private static String sanitizeHeaderCredential(String value) {
+        return value == null ? null : value.replace("\r", "").replace("\n", "").strip();
     }
 }

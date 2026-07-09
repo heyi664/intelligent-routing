@@ -6,7 +6,31 @@
 
 - `POST /api/chat`：文本聊天入口，用于验证 QA 快速命中、智能路由、Agent 分发和 LLM 回答链路。
 - `POST /api/voice/demo`：语音 Demo 入口，用于验证 ASR -> 文本路由链路。
+- WS /api/voice/realtime：WebSocket 实时语音入口第一版，支持 start/audio/end 分片发送，结束后识别并进入智能路由链路。
 
+## 2026-07-09 进度更新：指标/日志可观测性与流式响应
+
+本次已完成前两项开发任务的第一版落地：
+
+- 指标与日志可观测性：新增轻量级进程内指标 `ObservabilityMetrics`，并提供 `GET /api/observability/metrics` 查询入口；路由、Agent LLM、语音会话、ASR、语音错误、流式 delta 均会记录基础计数或最近耗时。关键日志统一携带 `traceId`、`conversationId`、`targetAgent`、耗时、fallback/错误原因，便于从一次语音请求串到 ASR、路由和 Agent 回答。
+- 流式响应：Qwen HTTP 传输层支持 SSE `stream=true`；`SpringAiGateway`、`LlmAgentResponder`、`ChatAgent`、`AgentRuntime`、`RouterService` 增加流式调用链路；6 个具体 Agent 已接入 `answerStreaming`。WebSocket 语音入口新增 `chat_start`、`chat_delta`、`chat_done` 消息，并保留原 `chat_response` 作为兼容最终结果。
+- 浏览器语音测试页：开始请求时生成并传递 `traceId`，页面支持实时追加 `chat_delta`，最终用 `chat_done/chat_response` 收口展示。
+
+验证方式：
+
+```powershell
+mvn test
+```
+
+流式语音页面验证：启动服务后打开 `http://localhost:8080/voice-test.html`，说一句如“家里闻到燃气味，怀疑燃气泄漏了，我现在应该怎么办？”，页面应先出现 ASR 结果，再逐步追加 Agent 回复，并显示最终 `targetAgent`。
+
+指标查询样例：
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:8080/api/observability/metrics
+```
+
+返回字段示例包括：`route.requests`、`route.streamingRequests`、`llm.agentCalls`、`llm.agentFallbacks`、`voice.sessionsStarted`、`voice.sessionsCompleted`、`asr.calls`、`chat.streamDeltas`、`chat.streamDeltaChars`。
 ## 当前进度
 
 | 模块 | 当前状态 | 说明 |
@@ -24,6 +48,9 @@
 | Qwen 路由日志 | 已完成 | 记录 request、raw response、decision、fallback，便于定位路由模型问题。 |
 | 路由 JSON 解析增强 | 已完成 | 支持紧凑 JSON、格式化 JSON、Markdown ```json 代码块；非法输出会 fallback 到澄清。 |
 | 语音 ASR Demo | 已完成基础链路 | 默认 mock ASR，可切换腾讯云 ASR 适配。 |
+| WebSocket 实时语音入口 | 已完成第一版 | /api/voice/realtime 支持 start/audio/end JSON 帧；当前为结束后统一 ASR，再进入 RouterService 和 Agent 回复链路。 |
+| 会话状态与聊天历史 | 已完成第一版 | 支持一整轮 user + assistant 入库；Agent LLM 回答前会加载同会话最近 N 轮历史，路由 prompt 保持原样。 |
+| Redis/PG 持久化 | 已完成第一版 | `app.memory.enabled=true` 后启用；PG 存聊天轮次/会话状态/摘要表，Redis 缓存会话状态并支持密码。数据库本身需先创建。 |
 | RAG 知识库 | 占位 | 当前已有接口/Agent，占位能力为主，未接真实知识库。 |
 
 ## 当前文本对话链路
@@ -42,10 +69,14 @@ POST /api/chat
   -> MockAgentRuntime.execute
   -> XxxAgent.answer
   -> LlmAgentResponder.answer
+     -> ConversationMemoryService.loadForPrompt 加载最近历史给 Agent LLM
   -> SpringAiGateway.streamAsText
   -> QwenChatModelClient.streamAsText
   -> QwenRestClientTransport.complete
   -> DashScope /chat/completions
+  -> RouterService.recordTurn
+     -> PG chat_turn 保存一整轮 user + assistant
+     -> PG/Redis 更新会话状态
 ```
 
 关键代码位置：
@@ -58,6 +89,10 @@ POST /api/chat
 | 规则路由 | `src/main/java/com/xinchan/voiceqa/routing/RuleBasedRouterAgent.java` |
 | Qwen 智能路由 | `src/main/java/com/xinchan/voiceqa/routing/QwenRouterAgent.java` |
 | 路由 prompt | `src/main/java/com/xinchan/voiceqa/routing/RouterPromptFactory.java` |
+| Agent prompt 与聊天历史注入 | `src/main/java/com/xinchan/voiceqa/agent/AgentPromptFactory.java` |
+| 会话记忆服务 | `src/main/java/com/xinchan/voiceqa/memory/ConversationMemoryService.java` |
+| PG 持久化建表与读写 | `src/main/java/com/xinchan/voiceqa/memory/PgMemoryStore.java` |
+| Redis 会话状态缓存 | `src/main/java/com/xinchan/voiceqa/memory/RedisStateCache.java` |
 | Agent 切换策略 | `src/main/java/com/xinchan/voiceqa/routing/AgentSwitchPolicy.java` |
 | Agent 分发 | `src/main/java/com/xinchan/voiceqa/agent/MockAgentRuntime.java` |
 | 具体 Agent | `src/main/java/com/xinchan/voiceqa/agent/*Agent.java` |
@@ -236,6 +271,16 @@ app.chat.agent-mode=router
 app.chat.manual-agent=CLARIFICATION_AGENT
 app.chat.router-provider=qwen
 app.chat.route-confidence-threshold=0.60
+
+# Conversation memory. 默认关闭；需要 Redis/PG 时启动参数打开 app.memory.enabled=true
+app.memory.enabled=false
+app.memory.recent-turn-limit=8
+app.memory.redis-host=192.168.23.129
+app.memory.redis-port=6379
+app.memory.redis-password=${REDIS_PASSWORD:123321}
+app.memory.jdbc-url=jdbc:postgresql://192.168.23.129:5432/intelligent-routing?sslmode=disable&connectTimeout=3&socketTimeout=5
+app.memory.jdbc-username=${PGVECTOR_USERNAME:postgres}
+app.memory.jdbc-password=${PGVECTOR_PASSWORD:postgres}
 ```
 
 ### DashScope / Qwen API Key
@@ -285,6 +330,58 @@ Invoke-RestMethod `
   -Body '{"voiceSessionId":"v-1","conversationId":"c-voice-1","userId":"u-1","audioBytes":"AQID"}'
 ```
 
+## 浏览器语音测试页面
+
+项目已提供一个最小语音测试页：
+
+```text
+http://localhost:8080/voice-test.html
+```
+
+使用方式：
+
+1. 启动后端服务。
+2. 用 Chrome 或 Edge 打开测试页。
+3. 填写或保留默认 `conversationId`、`userId`、`voiceSessionId`。
+4. 点击“开始说话”，允许浏览器使用麦克风。
+5. 说完后点击“结束说话”。
+6. 页面会展示 ASR 最终识别文本、`targetAgent` 和 Agent 回复。
+
+页面通过浏览器 Web Audio API 采集 PCM，点击“结束说话”后在前端重采样为 16k 单声道并封装为 WAV，然后通过 `WS /api/voice/realtime` 一次发送给后端。`start` 帧会携带 `audioFormat=wav` 和 `sampleRate=16000`，后端会把这些音频元数据带入 `VoiceInputEvent`，便于对接真实腾讯一句话 ASR。当前 `mock` ASR 模式仍然只返回固定文本；切换真实识别时需要设置 `app.asr.provider=tencent` 以及腾讯 ASR 密钥。
+## WebSocket 实时语音入口
+
+当前已完成第一版“按住说话/分片发送、结束后识别”的 WebSocket 入口，端点为：
+
+```text
+WS /api/voice/realtime
+```
+
+协议是文本 JSON 帧，音频内容用 Base64 放在 `audioBase64` 字段里：
+
+```json
+{"type":"start","voiceSessionId":"v-1","conversationId":"c-voice-1","userId":"u-1"}
+```
+
+```json
+{"type":"audio","audioBase64":"AQID"}
+```
+
+```json
+{"type":"end"}
+```
+
+服务端在收到 `start` 后创建语音会话，在收到多个 `audio` 帧时只做内存缓冲；收到 `end` 后合并音频字节，调用当前 `AsrClient` 得到稳定识别文本，再复用 `RouterService` 进入已有的智能路由、Agent 回答和聊天历史记录链路。
+
+服务端返回的主要消息类型：
+
+| type | 说明 |
+| --- | --- |
+| `started` | 语音会话已创建。 |
+| `asr_final` | ASR 最终稳定文本，包含 `transcript`、`confidence`、`offsetMs`。 |
+| `chat_response` | 路由后的 Agent 回复，包含 `conversationId`、`targetAgent`、`answer`、`source`。 |
+| `error` | 参数缺失、未 start、音频为空、ASR 无稳定文本或处理异常。 |
+
+注意：这一版不是“边说边实时出字”的流式 ASR，而是前端边录边分片发送，用户结束说话后再统一识别并调用大模型。下一步如果要做到真正实时转写，需要对接腾讯云实时 ASR/WebSocket 或同类流式 ASR SDK。
 ## 测试
 
 ```powershell
@@ -294,7 +391,7 @@ mvn test
 当前最新验证结果：
 
 ```text
-Tests run: 24, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 33, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -307,6 +404,8 @@ BUILD SUCCESS
 - Agent 分发。
 - LLM responder 成功调用、异常 fallback、日志输出。
 - 防止 agent/responder 重新出现本地空参构造路径。
+- 会话历史按一整轮 user + assistant 保存。
+- Agent LLM prompt 会携带最近会话历史，路由 LLM prompt 保持原样。
 
 ## 项目结构
 
@@ -320,7 +419,8 @@ src/main/java/com/xinchan/voiceqa
   routing/                             路由服务、规则路由、Qwen 路由、切换策略
   agent/                               AgentRuntime 和各类子 Agent
   qa/                                  QA 快速命中，当前为内存 Demo
-  conversation/                        会话状态仓储，当前为内存 Demo
+  conversation/                        会话状态仓储，支持内存与 PG/Redis 持久化
+  memory/                              聊天历史、会话摘要、PG 存储与 Redis 缓存
   knowledge/                           知识库接口，当前为 Mock/占位
 ```
 
@@ -333,7 +433,7 @@ src/main/java/com/xinchan/voiceqa
 | P0 | 安全类规则兜底 | TODO | 对燃气泄漏、燃气味、阀门、嘶嘶声等高风险场景强制进入 `SAFETY_AGENT`。 |
 | P0 | 完整 fallback 与转人工策略 | 部分完成 | 覆盖低置信度路由、RAG 无结果、ASR 失败、模型超时、用户意图不清等场景。 |
 | P1 | RAG 知识库第一版 | TODO | 接入本地 Markdown/JSON 或数据库知识库，完成加载、切分、检索、引用来源返回。 |
-| P1 | 会话状态与缓存持久化 | TODO | 用 Redis 或等价存储替换内存会话状态，支持 TTL 和跨实例共享。 |
+| P1 | 会话状态与缓存持久化 | 已完成第一版 | PG 记录聊天轮次和会话状态，Redis 缓存当前会话状态并支持 TTL/密码；后续补 LLM 摘要生成与更完整的运维配置。 |
 | P1 | 指标、日志与可观测性 | TODO | 记录 QA、路由、Agent、LLM、RAG、fallback 的耗时、命中情况和错误原因。 |
 | P2 | 正式语音入口 | TODO | 替换 JSON + Base64 Demo，支持 multipart 音频上传，后续扩展 WebSocket 实时 ASR。 |
 | P2 | 流式响应 | TODO | 让 Qwen/Agent 支持流式输出，接口可考虑 SSE，并记录首 token/首字符时间。 |
@@ -346,5 +446,6 @@ src/main/java/com/xinchan/voiceqa
 1. 先接入 `app.ai.timeout-ms`，解决配置存在但未生效的问题。
 2. 拆分路由 LLM 和 Agent LLM 的 timeout/retry 配置。
 3. 增加安全类高风险关键词兜底，减少模型低置信度误判。
-4. 接入第一版本地 RAG 知识库。
-5. 增加请求链路指标，包括 QA、路由、LLM、Agent、fallback 的耗时和错误原因。
+4. 完成超过轮数后的 LLM 会话摘要生成，并写入 `conversation_summary`。
+5. 接入第一版本地 RAG 知识库。
+6. 增加请求链路指标，包括 QA、路由、LLM、Agent、fallback 的耗时和错误原因。

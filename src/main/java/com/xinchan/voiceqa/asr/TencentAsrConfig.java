@@ -9,6 +9,14 @@ public record TencentAsrConfig(
     int sampleRate,
     int timeoutMs
 ) {
+    public TencentAsrConfig {
+        secretId = sanitizeHeaderCredential(secretId);
+        secretKey = sanitizeHeaderCredential(secretKey);
+        region = trimText(region);
+        engineModelType = trimText(engineModelType);
+        voiceFormat = trimText(voiceFormat);
+    }
+
     public TencentAsrConfig validate() {
         requireText(secretId, "app.asr.secret-id");
         requireText(secretKey, "app.asr.secret-key");
@@ -22,6 +30,14 @@ public record TencentAsrConfig(
             throw new IllegalArgumentException("app.asr.timeout-ms must be positive");
         }
         return this;
+    }
+
+    private static String sanitizeHeaderCredential(String value) {
+        return value == null ? null : value.replace("\r", "").replace("\n", "").strip();
+    }
+
+    private static String trimText(String value) {
+        return value == null ? null : value.strip();
     }
 
     private static void requireText(String value, String name) {

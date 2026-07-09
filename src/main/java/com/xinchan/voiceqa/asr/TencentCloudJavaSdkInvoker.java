@@ -50,8 +50,14 @@ public class TencentCloudJavaSdkInvoker implements TencentAsrSdkInvoker {
         request.setUsrAudioKey(UUID.randomUUID().toString());
         request.setData(Base64.getEncoder().encodeToString(audioBytes));
         request.setDataLen((long) audioBytes.length);
-        request.setInputSampleRate((long) config.sampleRate());
+        if (requiresExplicitInputSampleRate(config.voiceFormat())) {
+            request.setInputSampleRate((long) config.sampleRate());
+        }
         return request;
+    }
+
+    private static boolean requiresExplicitInputSampleRate(String voiceFormat) {
+        return voiceFormat != null && voiceFormat.equalsIgnoreCase("pcm");
     }
 
     private static SentenceRecognitionResponse callTencentCloud(

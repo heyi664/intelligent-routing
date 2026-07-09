@@ -26,7 +26,7 @@ public class AsrProperties {
     }
 
     public void setSecretId(String secretId) {
-        this.secretId = secretId;
+        this.secretId = sanitizeHeaderCredential(secretId);
     }
 
     public String getSecretKey() {
@@ -34,7 +34,7 @@ public class AsrProperties {
     }
 
     public void setSecretKey(String secretKey) {
-        this.secretKey = secretKey;
+        this.secretKey = sanitizeHeaderCredential(secretKey);
     }
 
     public String getRegion() {
@@ -42,7 +42,7 @@ public class AsrProperties {
     }
 
     public void setRegion(String region) {
-        this.region = region;
+        this.region = trimText(region);
     }
 
     public String getEngineModelType() {
@@ -50,7 +50,7 @@ public class AsrProperties {
     }
 
     public void setEngineModelType(String engineModelType) {
-        this.engineModelType = engineModelType;
+        this.engineModelType = trimText(engineModelType);
     }
 
     public String getVoiceFormat() {
@@ -58,7 +58,7 @@ public class AsrProperties {
     }
 
     public void setVoiceFormat(String voiceFormat) {
-        this.voiceFormat = voiceFormat;
+        this.voiceFormat = trimText(voiceFormat);
     }
 
     public int getSampleRate() {
@@ -75,5 +75,13 @@ public class AsrProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    private static String sanitizeHeaderCredential(String value) {
+        return value == null ? null : value.replace("\r", "").replace("\n", "").strip();
+    }
+
+    private static String trimText(String value) {
+        return value == null ? null : value.strip();
     }
 }

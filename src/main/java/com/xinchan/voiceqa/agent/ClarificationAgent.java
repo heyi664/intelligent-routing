@@ -28,4 +28,12 @@ public class ClarificationAgent implements ChatAgent {
                 + "你可以问我缴费/账单、安全应急、供气分析、知识库查询，或说明需要转人工。"
         );
     }
+
+    @Override
+    public String answerStreaming(ChatRequest request, RouteDecision decision, java.util.function.Consumer<String> deltaConsumer) {
+        return responder.answerStreaming(target(), request, decision,
+            "澄清助手：你好，我可以帮你判断要办理的业务类型。"
+                + "你可以问我缴费/账单、安全应急、供气分析、知识库查询，或说明需要转人工。"
+            , deltaConsumer);
+    }
 }

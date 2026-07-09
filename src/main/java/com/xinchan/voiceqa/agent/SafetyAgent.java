@@ -29,4 +29,13 @@ public class SafetyAgent implements ChatAgent {
                 + "你描述的问题是：" + request.message()
         );
     }
+
+    @Override
+    public String answerStreaming(ChatRequest request, RouteDecision decision, java.util.function.Consumer<String> deltaConsumer) {
+        return responder.answerStreaming(target(), request, decision,
+            "安全应急助手：你好，我负责燃气安全和应急处置。"
+                + "如果怀疑燃气泄漏，请先关闭表前阀门，打开门窗通风，不要开关电器或使用明火，并到室外拨打燃气抢修电话。"
+                + "你描述的问题是：" + request.message()
+            , deltaConsumer);
+    }
 }

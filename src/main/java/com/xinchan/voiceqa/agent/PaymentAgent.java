@@ -29,4 +29,13 @@ public class PaymentAgent implements ChatAgent {
                 + "。如果要继续办理，请提供户号、手机号或账单月份。"
         );
     }
+
+    @Override
+    public String answerStreaming(ChatRequest request, RouteDecision decision, java.util.function.Consumer<String> deltaConsumer) {
+        return responder.answerStreaming(target(), request, decision,
+            "缴费助手：你好，我可以帮你处理天然气缴费、充值、账单和欠费查询。"
+                + "你刚才问的是：" + request.message()
+                + "。如果要继续办理，请提供户号、手机号或账单月份。"
+            , deltaConsumer);
+    }
 }
