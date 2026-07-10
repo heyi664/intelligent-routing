@@ -3,6 +3,7 @@ package com.xinchan.voiceqa.routing;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xinchan.voiceqa.ai.ChatModelRequest;
+import com.xinchan.voiceqa.ai.ChatModelPurpose;
 import com.xinchan.voiceqa.ai.StreamingChatModelClient;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.conversation.ConversationState;
@@ -39,7 +40,8 @@ public class QwenRouterAgent implements RouterAgent {
                 promptFactory.systemPrompt(),
                 promptFactory.userPrompt(request, state),
                 request.conversationId(),
-                request.conversationId()
+                request.traceId() == null || request.traceId().isBlank() ? request.conversationId() : request.traceId(),
+                ChatModelPurpose.ROUTER
             ));
             log.info("Qwen router raw response conversationId={} content={}", request.conversationId(), content);
         } catch (RuntimeException ex) {

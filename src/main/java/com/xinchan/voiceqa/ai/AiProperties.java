@@ -9,6 +9,12 @@ public class AiProperties {
     private String baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
     private String apiKey;
     private int timeoutMs = 6000;
+    private int connectTimeoutMs = 3000;
+    private int routerTimeoutMs = 6000;
+    private int agentTimeoutMs = 30000;
+    private int routerMaxRetries = 1;
+    private int agentMaxRetries = 1;
+    private long retryBackoffMs = 200;
 
     public String getProvider() {
         return provider;
@@ -48,6 +54,54 @@ public class AiProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    public int getConnectTimeoutMs() {
+        return connectTimeoutMs;
+    }
+
+    public void setConnectTimeoutMs(int connectTimeoutMs) {
+        this.connectTimeoutMs = connectTimeoutMs;
+    }
+
+    public int getRouterTimeoutMs() {
+        return routerTimeoutMs;
+    }
+
+    public void setRouterTimeoutMs(int routerTimeoutMs) {
+        this.routerTimeoutMs = routerTimeoutMs;
+    }
+
+    public int getAgentTimeoutMs() {
+        return agentTimeoutMs;
+    }
+
+    public void setAgentTimeoutMs(int agentTimeoutMs) {
+        this.agentTimeoutMs = agentTimeoutMs;
+    }
+
+    public int getRouterMaxRetries() {
+        return routerMaxRetries;
+    }
+
+    public void setRouterMaxRetries(int routerMaxRetries) {
+        this.routerMaxRetries = routerMaxRetries;
+    }
+
+    public int getAgentMaxRetries() {
+        return agentMaxRetries;
+    }
+
+    public void setAgentMaxRetries(int agentMaxRetries) {
+        this.agentMaxRetries = agentMaxRetries;
+    }
+
+    public long getRetryBackoffMs() {
+        return retryBackoffMs;
+    }
+
+    public void setRetryBackoffMs(long retryBackoffMs) {
+        this.retryBackoffMs = retryBackoffMs;
     }
 
     private static String sanitizeHeaderCredential(String value) {

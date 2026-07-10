@@ -1,6 +1,7 @@
 package com.xinchan.voiceqa.agent;
 
 import com.xinchan.voiceqa.ai.ChatModelRequest;
+import com.xinchan.voiceqa.ai.PartialChatResponseException;
 import com.xinchan.voiceqa.ai.SpringAiGateway;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.memory.ConversationMemory;
@@ -142,7 +143,9 @@ public class LlmAgentResponder {
                 ex.getMessage(),
                 ex
             );
-            emitFallback(deltaConsumer, fallbackAnswer);
+            if (!(ex instanceof PartialChatResponseException)) {
+                emitFallback(deltaConsumer, fallbackAnswer);
+            }
             return fallbackAnswer;
         }
     }

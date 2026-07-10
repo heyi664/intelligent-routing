@@ -109,9 +109,9 @@ POST /api/chat
 - `model`：同一个 `app.ai.model=qwen3.6-flash`
 - `baseUrl`：同一个 `app.ai.base-url`
 - `apiKey`：同一个 `app.ai.api-key`
-- `stream`：均为 `false`
+- `stream`：路由调用为 `false`；流式 Agent 回答为 `true`
 - `messages`：均为 system + user 两条消息
-- HTTP transport：同一个 `RestClient`
+- HTTP transport：共用 `QwenRestClientTransport`，但按调用用途创建带不同超时的 `RestClient`
 
 差异主要在 prompt 和期望输出：
 
@@ -120,10 +120,15 @@ POST /api/chat
 | 路由 LLM | `QwenRouterAgent` | 判断应该切到哪个 Agent | 结构化 JSON：`targetAgent`、`confidence`、`reason` 等 |
 | Agent LLM | `LlmAgentResponder` | 生成直接给用户看的回答 | 自然语言回答 |
 
-注意：`app.ai.timeout-ms=6000` 当前已经在配置中声明，但还没有真正接入 `RestClient` 的 connect/read timeout。也就是说，目前路由 LLM 和 Agent LLM 并不是使用不同超时，而是都没有真正使用该 timeout 配置。后续建议拆分为：
+当前已接入独立的 HTTP 超时与重试策略：
 
-- `app.ai.router-timeout-ms`：路由调用更短，例如 3-6 秒。
-- `app.ai.agent-timeout-ms`：回答调用稍长，例如 15-30 秒。
+- `app.ai.connect-timeout-ms=3000`：建立 TCP/TLS 连接的最长等待时间。
+- `app.ai.router-timeout-ms=6000`：路由模型读取超时，保持较短以避免阻塞整条链路。
+- `app.ai.agent-timeout-ms=30000`：Agent 回答读取超时，允许生成较长内容。
+- `app.ai.router-max-retries=1`、`app.ai.agent-max-retries=1`：失败后的额外尝试次数。
+- `app.ai.retry-backoff-ms=200`：重试基础退避时间，后续尝试按次数递增。
+
+重试只针对连接/读取 I/O 中断、HTTP 429 和 HTTP 5xx；鉴权失败、参数错误、非法响应等确定性错误不会重试。流式回答只有在尚未输出任何 `delta` 时才允许重试，已经输出部分内容后不会重试，以免页面出现重复文字。
 
 ## 当前已有 Agent
 
@@ -237,9 +242,8 @@ $text | ConvertFrom-Json
 
 | 问题 | 说明 | 建议 |
 | --- | --- | --- |
-| Qwen/HTTP/TLS 偶发读取中断 | 已观察到路由模型调用阶段出现网络/读取中断；澄清或 Agent 调用后续可能成功。 | 增加超时配置接入、重试、熔断和更细粒度日志。 |
-| `app.ai.timeout-ms` 未真正接入 HTTP 客户端 | 配置存在，但 `RestClient.builder().build()` 当前没有设置 connect/read timeout。 | 接入 `ClientHttpRequestFactory` 并应用 timeout。 |
-| 路由和 Agent LLM 共用同一超时配置 | 目前没有区分路由调用和回答调用的 timeout。 | 拆分 `router-timeout-ms` 和 `agent-timeout-ms`。 |
+| Qwen/HTTP/TLS 偶发读取中断 | 已接入 connect/read timeout 和有限重试，可降低临时网络抖动的影响，但不能消除上游服务或本地网络故障。 | 后续可增加熔断、失败率指标和告警。 |
+| 流式回答中途断开 | 已输出部分 `delta` 后不会自动重试，避免重复内容；最终仍会进入现有 fallback 收口。 | 后续可增加可恢复流式协议或明确的前端中断提示。 |
 | 安全类高风险问题仍依赖模型判断 | 少数口语化表达可能被 Qwen 判为低置信度澄清。 | 对“燃气味、泄漏、嘶嘶声、阀门”等关键词增加安全兜底规则。 |
 | RAG 仍是占位 | 当前可路由到 `RAG_AGENT`，但未接真实知识库。 | 接入本地文档/数据库/向量检索。 |
 | PowerShell 直接 `Invoke-RestMethod` 可能显示乱码 | `targetAgent/source` 正常，`answer` 展示可能受终端编码影响。 | 使用 `Invoke-WebRequest` + UTF-8 bytes 解码，或调整终端编码。 |
@@ -266,6 +270,12 @@ app.ai.model=qwen3.6-flash
 app.ai.base-url=https://dashscope.aliyuncs.com/compatible-mode/v1
 app.ai.api-key=${DASHSCOPE_API_KEY:${QWEN_API_KEY:}}
 app.ai.timeout-ms=6000
+app.ai.connect-timeout-ms=3000
+app.ai.router-timeout-ms=6000
+app.ai.agent-timeout-ms=30000
+app.ai.router-max-retries=1
+app.ai.agent-max-retries=1
+app.ai.retry-backoff-ms=200
 
 app.chat.agent-mode=router
 app.chat.manual-agent=CLARIFICATION_AGENT
@@ -391,7 +401,7 @@ mvn test
 当前最新验证结果：
 
 ```text
-Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 45, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -428,8 +438,8 @@ src/main/java/com/xinchan/voiceqa
 
 | 优先级 | 功能 | 当前状态 | 要做什么 |
 | --- | --- | --- | --- |
-| P0 | HTTP timeout 接入 | TODO | 将 `app.ai.timeout-ms` 应用到 `RestClient` 的 connect/read timeout。 |
-| P0 | 路由/回答 timeout 拆分 | TODO | 增加 `router-timeout-ms` 和 `agent-timeout-ms`，避免两类调用共用同一策略。 |
+| P0 | HTTP timeout 接入 | 已完成第一版 | `connect-timeout-ms` 已应用到连接阶段，`router-timeout-ms`/`agent-timeout-ms` 已应用到读取阶段。 |
+| P0 | 路由/回答 timeout 与重试拆分 | 已完成第一版 | 路由和 Agent 使用独立读取超时与重试次数；仅重试 I/O 中断、HTTP 429/5xx，流式已出字后不重试。 |
 | P0 | 安全类规则兜底 | TODO | 对燃气泄漏、燃气味、阀门、嘶嘶声等高风险场景强制进入 `SAFETY_AGENT`。 |
 | P0 | 完整 fallback 与转人工策略 | 部分完成 | 覆盖低置信度路由、RAG 无结果、ASR 失败、模型超时、用户意图不清等场景。 |
 | P1 | RAG 知识库第一版 | TODO | 接入本地 Markdown/JSON 或数据库知识库，完成加载、切分、检索、引用来源返回。 |
@@ -443,9 +453,8 @@ src/main/java/com/xinchan/voiceqa
 
 ## 下一步建议
 
-1. 先接入 `app.ai.timeout-ms`，解决配置存在但未生效的问题。
-2. 拆分路由 LLM 和 Agent LLM 的 timeout/retry 配置。
-3. 增加安全类高风险关键词兜底，减少模型低置信度误判。
-4. 完成超过轮数后的 LLM 会话摘要生成，并写入 `conversation_summary`。
-5. 接入第一版本地 RAG 知识库。
-6. 将轻量指标升级为正式可观测性方案：接入 Micrometer/Actuator、Prometheus/Grafana，并补充首 token 耗时、分位耗时和 traceId 链路查询。
+1. 增加安全类高风险关键词兜底，减少模型低置信度误判。
+2. 完成超过轮数后的 LLM 会话摘要生成，并写入 `conversation_summary`。
+3. 接入第一版本地 RAG 知识库。
+4. 增加熔断、失败率指标与告警，进一步处理持续性上游故障。
+5. 将轻量指标升级为正式可观测性方案：接入 Micrometer/Actuator、Prometheus/Grafana，并补充首 token 耗时、分位耗时和 traceId 链路查询。

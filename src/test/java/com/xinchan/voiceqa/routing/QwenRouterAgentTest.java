@@ -1,5 +1,7 @@
 package com.xinchan.voiceqa.routing;
 
+import com.xinchan.voiceqa.ai.ChatModelPurpose;
+import com.xinchan.voiceqa.ai.ChatModelRequest;
 import com.xinchan.voiceqa.ai.StreamingChatModelClient;
 import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.conversation.ConversationState;
@@ -9,6 +11,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -38,16 +41,20 @@ class QwenRouterAgentTest {
 
     @Test
     void parsesPrettyPrintedRouterJson() {
-        StreamingChatModelClient model = request -> """
-            {
-              "rewrittenQuestion": "How should a gas leak at home be handled?",
-              "intent": "GAS_LEAK_EMERGENCY_HANDLING",
-              "targetAgent": "SAFETY_AGENT",
-              "shouldStayInCurrentAgent": false,
-              "confidence": 0.98,
-              "reason": "The user asks about emergency gas leak handling."
-            }
-            """;
+        AtomicReference<ChatModelRequest> capturedRequest = new AtomicReference<>();
+        StreamingChatModelClient model = request -> {
+            capturedRequest.set(request);
+            return """
+                {
+                  "rewrittenQuestion": "How should a gas leak at home be handled?",
+                  "intent": "GAS_LEAK_EMERGENCY_HANDLING",
+                  "targetAgent": "SAFETY_AGENT",
+                  "shouldStayInCurrentAgent": false,
+                  "confidence": 0.98,
+                  "reason": "The user asks about emergency gas leak handling."
+                }
+                """;
+        };
         QwenRouterAgent agent = new QwenRouterAgent(model, new RouterPromptFactory());
 
         RouteCandidate candidate = agent.classify(
@@ -58,6 +65,7 @@ class QwenRouterAgentTest {
         assertEquals(RouteTarget.SAFETY_AGENT, candidate.targetAgent());
         assertEquals("GAS_LEAK_EMERGENCY_HANDLING", candidate.intent());
         assertEquals(0.98, candidate.confidence(), 0.001);
+        assertEquals(ChatModelPurpose.ROUTER, capturedRequest.get().purpose());
     }
 
     @Test
