@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = "app.memory.enabled=false"
+    properties = {"app.memory.enabled=false", "app.asr.provider=mock"}
 )
 class VoiceTestPageStaticResourceTest {
     @Autowired
@@ -22,8 +22,19 @@ class VoiceTestPageStaticResourceTest {
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).contains("ws://", "/api/voice/realtime", "startButton", "stopButton");
-        assertThat(response.getBody()).contains("AudioContext", "createWavBlob", "TARGET_SAMPLE_RATE", "audioFormat", "sampleRate");
+        assertThat(response.getBody()).contains(
+            "AudioContext",
+            "encodePcm16",
+            "resampleLinear",
+            "TARGET_SAMPLE_RATE",
+            "audioFormat",
+            "sampleRate",
+            "waitForServerStarted(20000)",
+            "await serverStarted",
+            "socket.send(pcm)",
+            "asr_partial"
+        );
         assertThat(response.getBody()).contains("traceId", "createTraceId", "currentTraceId = createTraceId()", "chat_start", "chat_delta", "chat_done");
-        assertThat(response.getBody()).doesNotContain("new MediaRecorder", "`n");
+        assertThat(response.getBody()).doesNotContain("createWavBlob", "audioBase64", "new MediaRecorder", "`n");
     }
 }

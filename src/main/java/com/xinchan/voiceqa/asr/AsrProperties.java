@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.asr")
 public class AsrProperties {
     private String provider = "mock";
+    private String appId;
     private String secretId;
     private String secretKey;
     private String region = "ap-guangzhou";
@@ -12,6 +13,16 @@ public class AsrProperties {
     private String voiceFormat = "wav";
     private int sampleRate = 16000;
     private int timeoutMs = 5000;
+    private int realtimeTimeoutMs = 15000;
+    private int realtimeVadSilenceTimeMs = 1000;
+
+    public String getAppId() {
+        return appId;
+    }
+
+    public void setAppId(String appId) {
+        this.appId = trimText(appId);
+    }
 
     public String getProvider() {
         return provider;
@@ -75,6 +86,22 @@ public class AsrProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    public int getRealtimeVadSilenceTimeMs() {
+        return realtimeVadSilenceTimeMs;
+    }
+
+    public int getRealtimeTimeoutMs() {
+        return realtimeTimeoutMs;
+    }
+
+    public void setRealtimeTimeoutMs(int realtimeTimeoutMs) {
+        this.realtimeTimeoutMs = realtimeTimeoutMs;
+    }
+
+    public void setRealtimeVadSilenceTimeMs(int realtimeVadSilenceTimeMs) {
+        this.realtimeVadSilenceTimeMs = realtimeVadSilenceTimeMs;
     }
 
     private static String sanitizeHeaderCredential(String value) {

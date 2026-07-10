@@ -6,7 +6,17 @@
 
 - `POST /api/chat`：文本聊天入口，用于验证 QA 快速命中、智能路由、Agent 分发和 LLM 回答链路。
 - `POST /api/voice/demo`：语音 Demo 入口，用于验证 ASR -> 文本路由链路。
-- WS /api/voice/realtime：WebSocket 实时语音入口第一版，支持 start/audio/end 分片发送，结束后识别并进入智能路由链路。
+- `WS /api/voice/realtime`：WebSocket 实时语音入口，录音过程中持续发送 16k PCM 二进制分片，腾讯实时 ASR 增量返回文本，最终文本进入智能路由链路。
+
+## 2026-07-10 进度更新：腾讯实时 ASR
+
+正式语音入口第一版已打通：
+
+- 浏览器使用 Web Audio API 采集麦克风音频，重采样为 16k、16-bit、单声道 PCM，并在录音过程中通过 WebSocket 二进制帧持续发送。
+- 后端收到 `start` 后立即建立腾讯云实时语音识别 WebSocket，会话期间直接转发 PCM 分片，不再等待录音结束后生成完整 WAV。
+- 腾讯 ASR 的临时结果和稳定分句通过 `asr_partial` 返回页面；收到云端 `final=1` 后发送 `asr_final`，再进入智能路由和 Agent 流式回答。
+- 保留 `mock` 模式及旧 Base64 JSON 音频帧兼容路径，便于本地自动化测试和旧调用方迁移。
+- 新增腾讯实时 ASR 参数签名、配置清洗、PCM 转发、partial/final 时序和静态页面测试。
 
 ## 2026-07-09 进度更新：指标/日志可观测性与流式响应
 
@@ -48,7 +58,7 @@ Invoke-RestMethod -Uri http://localhost:8080/api/observability/metrics
 | Qwen 路由日志 | 已完成 | 记录 request、raw response、decision、fallback，便于定位路由模型问题。 |
 | 路由 JSON 解析增强 | 已完成 | 支持紧凑 JSON、格式化 JSON、Markdown ```json 代码块；非法输出会 fallback 到澄清。 |
 | 语音 ASR Demo | 已完成基础链路 | 默认 mock ASR，可切换腾讯云 ASR 适配。 |
-| WebSocket 实时语音入口 | 已完成第一版 | /api/voice/realtime 支持 start/audio/end JSON 帧；当前为结束后统一 ASR，再进入 RouterService 和 Agent 回复链路。 |
+| WebSocket 实时语音入口 | 已完成第一版 | `/api/voice/realtime` 支持文本控制帧和二进制 PCM 音频帧；录音过程中持续调用腾讯实时 ASR，最终文本进入 `RouterService` 和 Agent 回复链路。 |
 | 会话状态与聊天历史 | 已完成第一版 | 支持一整轮 user + assistant 入库；Agent LLM 回答前会加载同会话最近 N 轮历史，路由 prompt 保持原样。 |
 | Redis/PG 持久化 | 已完成第一版 | `app.memory.enabled=true` 后启用；PG 存聊天轮次/会话状态/摘要表，Redis 缓存会话状态并支持密码。数据库本身需先创建。 |
 | RAG 知识库 | 占位 | 当前已有接口/Agent，占位能力为主，未接真实知识库。 |
@@ -257,6 +267,7 @@ spring.application.name=voice-agent-router-demo
 server.port=8080
 
 app.asr.provider=mock
+app.asr.app-id=${TENCENT_ASR_APP_ID:}
 app.asr.secret-id=${TENCENT_ASR_SECRET_ID:}
 app.asr.secret-key=${TENCENT_ASR_SECRET_KEY:}
 app.asr.region=${TENCENT_ASR_REGION:ap-guangzhou}
@@ -264,6 +275,8 @@ app.asr.engine-model-type=${TENCENT_ASR_ENGINE_MODEL_TYPE:16k_zh}
 app.asr.voice-format=${TENCENT_ASR_VOICE_FORMAT:wav}
 app.asr.sample-rate=${TENCENT_ASR_SAMPLE_RATE:16000}
 app.asr.timeout-ms=${TENCENT_ASR_TIMEOUT_MS:5000}
+app.asr.realtime-timeout-ms=${TENCENT_ASR_REALTIME_TIMEOUT_MS:15000}
+app.asr.realtime-vad-silence-time-ms=${TENCENT_ASR_VAD_SILENCE_TIME_MS:1000}
 
 app.ai.provider=qwen
 app.ai.model=qwen3.6-flash
@@ -355,43 +368,47 @@ http://localhost:8080/voice-test.html
 3. 填写或保留默认 `conversationId`、`userId`、`voiceSessionId`。
 4. 点击“开始说话”，允许浏览器使用麦克风。
 5. 说完后点击“结束说话”。
-6. 页面会展示 ASR 最终识别文本、`targetAgent` 和 Agent 回复。
+6. 说话过程中页面会持续展示 ASR 临时文本，结束后展示最终文本、`targetAgent` 和 Agent 回复。
 
-页面通过浏览器 Web Audio API 采集 PCM，点击“结束说话”后在前端重采样为 16k 单声道并封装为 WAV，然后通过 `WS /api/voice/realtime` 一次发送给后端。`start` 帧会携带 `audioFormat=wav` 和 `sampleRate=16000`，后端会把这些音频元数据带入 `VoiceInputEvent`，便于对接真实腾讯一句话 ASR。当前 `mock` ASR 模式仍然只返回固定文本；切换真实识别时需要设置 `app.asr.provider=tencent` 以及腾讯 ASR 密钥。
+页面通过浏览器 Web Audio API 采集 PCM，在录音回调中持续重采样为 16k 单声道并编码为 PCM16 小端字节，然后通过 `WS /api/voice/realtime` 二进制帧立即发送。`start` 帧携带 `audioFormat=pcm` 和 `sampleRate=16000`。当前 `mock` 模式会在结束时返回固定文本；切换腾讯实时识别需要设置 `app.asr.provider=tencent`，并配置 `TENCENT_ASR_APP_ID`、`TENCENT_ASR_SECRET_ID`、`TENCENT_ASR_SECRET_KEY`。
 ## WebSocket 实时语音入口
 
-当前已完成第一版“按住说话/分片发送、结束后识别”的 WebSocket 入口，端点为：
+当前已完成第一版“边说边发送、边说边识别”的 WebSocket 入口，端点为：
 
 ```text
 WS /api/voice/realtime
 ```
 
-协议是文本 JSON 帧，音频内容用 Base64 放在 `audioBase64` 字段里：
+开始和结束使用文本 JSON 控制帧：
 
 ```json
-{"type":"start","voiceSessionId":"v-1","conversationId":"c-voice-1","userId":"u-1"}
+{"type":"start","voiceSessionId":"v-1","conversationId":"c-voice-1","userId":"u-1","audioFormat":"pcm","sampleRate":16000}
 ```
 
-```json
-{"type":"audio","audioBase64":"AQID"}
-```
+开始成功后，客户端持续发送 WebSocket 二进制帧。每个二进制帧是 16k、16-bit、单声道、PCM 小端原始数据，不包含 WAV 文件头，也不需要 Base64 编码。
 
 ```json
 {"type":"end"}
 ```
 
-服务端在收到 `start` 后创建语音会话，在收到多个 `audio` 帧时只做内存缓冲；收到 `end` 后合并音频字节，调用当前 `AsrClient` 得到稳定识别文本，再复用 `RouterService` 进入已有的智能路由、Agent 回答和聊天历史记录链路。
+服务端收到 `start` 后创建本地会话并连接腾讯实时 ASR；收到二进制音频帧后立即转发给腾讯。腾讯返回临时或稳定分句时，服务端发送 `asr_partial`。客户端发送 `end` 后，服务端通知腾讯结束音频流；腾讯返回 `final=1` 后，服务端发送 `asr_final`，再复用 `RouterService` 进入智能路由、Agent 回答和聊天历史记录链路。
+
+旧版 `{"type":"audio","audioBase64":"..."}` 文本帧仍可兼容，但浏览器页面和正式链路默认使用二进制 PCM 帧。
 
 服务端返回的主要消息类型：
 
 | type | 说明 |
 | --- | --- |
-| `started` | 语音会话已创建。 |
-| `asr_final` | ASR 最终稳定文本，包含 `transcript`、`confidence`、`offsetMs`。 |
-| `chat_response` | 路由后的 Agent 回复，包含 `conversationId`、`targetAgent`、`answer`、`source`。 |
+| `started` | 本地会话和腾讯实时 ASR 连接已创建。 |
+| `asr_partial` | ASR 增量文本，包含 `transcript`、`stable`、`index`、起止时间。 |
+| `asr_final` | ASR 最终稳定文本，包含 `transcript`。 |
+| `chat_start` | 最终文本已进入路由，开始生成 Agent 回答。 |
+| `chat_delta` | Agent 回答的增量文本。 |
+| `chat_done` | Agent 流式回答结束，包含最终 `targetAgent`。 |
+| `chat_response` | 兼容用最终回复，包含 `conversationId`、`targetAgent`、`answer`、`source`。 |
 | `error` | 参数缺失、未 start、音频为空、ASR 无稳定文本或处理异常。 |
 
-注意：这一版不是“边说边实时出字”的流式 ASR，而是前端边录边分片发送，用户结束说话后再统一识别并调用大模型。下一步如果要做到真正实时转写，需要对接腾讯云实时 ASR/WebSocket 或同类流式 ASR SDK。
+腾讯实时 ASR 的 AppID 可在腾讯云控制台账号信息中查看。AppID 与 SecretId 不是同一个值，缺少 `TENCENT_ASR_APP_ID` 时，`tencent` 模式会在启动阶段直接给出配置错误。
 ## 测试
 
 ```powershell
@@ -401,7 +418,7 @@ mvn test
 当前最新验证结果：
 
 ```text
-Tests run: 45, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 50, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -411,6 +428,8 @@ BUILD SUCCESS
 - 路由和手动 Agent 模式。
 - 规则路由与 Qwen 智能路由配置切换。
 - Qwen 路由 JSON 解析：紧凑 JSON、格式化 JSON、Markdown JSON 代码块、非法输出 fallback。
+- 腾讯实时 ASR：WebSocket 签名参数、凭证清洗、AppID 校验、二进制 PCM 转发、增量/最终文本时序。
+- 浏览器实时语音页：等待服务端 `started` 后再采集麦克风，持续发送 PCM，处理 `asr_partial` 和 Agent 流式消息。
 - Agent 分发。
 - LLM responder 成功调用、异常 fallback、日志输出。
 - 防止 agent/responder 重新出现本地空参构造路径。
@@ -445,8 +464,8 @@ src/main/java/com/xinchan/voiceqa
 | P1 | RAG 知识库第一版 | TODO | 接入本地 Markdown/JSON 或数据库知识库，完成加载、切分、检索、引用来源返回。 |
 | P1 | 会话状态与缓存持久化 | 已完成第一版 | PG 记录聊天轮次和会话状态，Redis 缓存当前会话状态并支持 TTL/密码；后续补 LLM 摘要生成与更完整的运维配置。 |
 | P1 | 指标、日志与可观测性 | 已完成第一版 | 已提供 `GET /api/observability/metrics`，并记录路由、Agent LLM、语音会话、ASR、错误、流式 delta 的基础计数和最近耗时；后续可接入 Micrometer/Actuator、Prometheus、链路追踪和更完整的耗时分位统计。 |
-| P2 | 正式语音入口 | TODO | 替换 JSON + Base64 Demo，支持 multipart 音频上传，后续扩展 WebSocket 实时 ASR。 |
-| P2 | 流式响应 | 已完成第一版 | Qwen HTTP 传输层支持 SSE `stream=true`，Router/Agent/LLM 链路支持 `answerStreaming`；WebSocket 语音入口返回 `chat_start`、`chat_delta`、`chat_done`，页面支持增量展示。后续可补首 token 耗时、HTTP SSE 文本接口和真正实时 ASR 增量转写。 |
+| P2 | 正式语音入口 | 已完成第一版 | WebSocket 使用二进制 PCM 分片对接腾讯实时 ASR，支持增量转写和最终文本路由；后续可将 `ScriptProcessorNode` 升级为 AudioWorklet，并补断线重连、背压和会话时长限制。 |
+| P2 | 流式响应 | 已完成第一版 | ASR 支持 `asr_partial/asr_final`，Qwen HTTP 传输层支持 SSE `stream=true`，WebSocket 语音入口返回 `chat_start`、`chat_delta`、`chat_done`。后续可补首 token 耗时和 HTTP SSE 文本接口。 |
 | P2 | 管理配置能力 | TODO | 提供 QA、Prompt、Agent 开关、路由阈值、知识库文档、指标查看等管理入口。 |
 | P3 | 权限与审计 | TODO | 对管理入口、配置修改、知识库更新、人工转接等操作做权限控制和审计记录。 |
 | P3 | TTS 语音回复 | TODO | 在文本回答之后接入 TTS，形成完整语音回复链路。 |

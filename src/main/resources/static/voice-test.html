@@ -49,7 +49,7 @@
 <body>
   <main>
     <h1>实时语音测试</h1>
-    <p class="subtitle">点击开始后对着麦克风说话，结束后页面会生成 16k WAV，后端进行 ASR 识别，并把文本交给智能路由和 Agent 回复。</p>
+    <p class="subtitle">点击开始后对着麦克风说话，页面会持续发送 16k PCM，并实时展示 ASR 文本；讲话结束后把最终文本交给智能路由和 Agent。</p>
 
     <div class="layout">
       <section>
@@ -67,7 +67,7 @@
           <span id="statusDot" class="dot"></span>
           <span id="statusText">未连接</span>
         </div>
-        <p class="hint">页面会连接 <code>ws://localhost:8080/api/voice/realtime</code>。当前页面录完后生成 16k 单声道 WAV，一次发送给后端，适合先打通腾讯一句话 ASR。</p>
+        <p class="hint">页面会连接 <code>ws://localhost:8080/api/voice/realtime</code>，使用 WebSocket 二进制帧持续发送 16k、16-bit、单声道 PCM 音频。</p>
       </section>
 
       <section>
@@ -99,10 +99,12 @@
     let sourceNode;
     let processorNode;
     let muteNode;
-    let recordedBuffers = [];
     let recording = false;
     let stopping = false;
     let currentTraceId = "";
+    let sentAudioBytes = 0;
+    let lastAudioLogAt = 0;
+    let serverStartSettler;
 
     voiceSessionIdInput.value = createVoiceSessionId();
     startButton.addEventListener("click", startRecording);
@@ -116,21 +118,24 @@
 
       try {
         socket = await openSocket(buildWebSocketUrl());
+        const serverStarted = waitForServerStarted(20000);
         sendJson({
           type: "start",
           voiceSessionId: valueOf("voiceSessionId"),
           conversationId: valueOf("conversationId"),
           userId: valueOf("userId"),
-          audioFormat: "wav",
+          audioFormat: "pcm",
           sampleRate: TARGET_SAMPLE_RATE,
           traceId: currentTraceId
         });
+        setStatus("正在连接实时 ASR", "ok");
+        await serverStarted;
 
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        audioContext = new AudioContextClass();
+        audioContext = new AudioContextClass({ sampleRate: TARGET_SAMPLE_RATE });
         sourceNode = audioContext.createMediaStreamSource(stream);
-        processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+        processorNode = audioContext.createScriptProcessor(2048, 1, 1);
         muteNode = audioContext.createGain();
         muteNode.gain.value = 0;
         processorNode.onaudioprocess = event => {
@@ -138,7 +143,17 @@
             return;
           }
           const input = event.inputBuffer.getChannelData(0);
-          recordedBuffers.push(new Float32Array(input));
+          const resampled = resampleLinear(input, audioContext.sampleRate, TARGET_SAMPLE_RATE);
+          const pcm = encodePcm16(resampled);
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(pcm);
+            sentAudioBytes += pcm.byteLength;
+            const now = Date.now();
+            if (now - lastAudioLogAt >= 1000) {
+              writeLog("streaming pcm: totalBytes=" + sentAudioBytes);
+              lastAudioLogAt = now;
+            }
+          }
         };
         sourceNode.connect(processorNode);
         processorNode.connect(muteNode);
@@ -162,19 +177,13 @@
       stopping = true;
       recording = false;
       stopButton.disabled = true;
-      setStatus("正在生成 WAV", "ok");
+      setStatus("正在结束实时识别", "ok");
 
       try {
-        const sourceSampleRate = audioContext.sampleRate;
         stopMediaTracks();
         disconnectAudioNodes();
-        const wavBlob = createWavBlob(recordedBuffers, sourceSampleRate, TARGET_SAMPLE_RATE);
-        writeLog("created wav: " + wavBlob.size + " bytes");
-        setStatus("正在发送音频", "ok");
-        const base64 = await blobToBase64(wavBlob);
-        sendJson({ type: "audio", audioBase64: base64 });
         sendJson({ type: "end" });
-        setStatus("已发送结束，等待识别和回复", "ok");
+        setStatus("已结束讲话，等待最终识别和回复", "ok");
       } catch (error) {
         writeLog("stop failed: " + error.message);
         setStatus("结束失败", "");
@@ -190,6 +199,7 @@
         ws.addEventListener("message", handleMessage);
         ws.addEventListener("close", event => {
           writeLog("closed: code=" + event.code + " reason=" + (event.reason || "none"));
+          settleServerStart(new Error("WebSocket 已关闭：" + event.code));
           if (!stopping) {
             setStatus("连接已关闭：" + event.code, "");
           }
@@ -209,11 +219,16 @@
         return;
       }
       if (message.type === "started") {
+        settleServerStart();
         setStatus("server session started", "ok");
       }
       if (message.type === "asr_final") {
         transcript.textContent = message.transcript || "no transcript";
         setStatus("ASR done, waiting for agent", "ok");
+      }
+      if (message.type === "asr_partial") {
+        transcript.textContent = message.transcript || "等待识别";
+        setStatus(message.stable ? "已确认一段语音" : "实时识别中", "recording");
       }
       if (message.type === "chat_start") {
         targetAgent.textContent = message.targetAgent || "routing";
@@ -234,39 +249,40 @@
         closeSocketLater();
       }
       if (message.type === "error") {
+        settleServerStart(new Error(message.message || "实时 ASR 启动失败"));
         setStatus("server error", "");
         answer.textContent = message.message || "server processing failed";
         closeSocketLater();
       }
     }
+
+    function waitForServerStarted(timeoutMs) {
+      return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          serverStartSettler = undefined;
+          reject(new Error("等待实时 ASR 会话启动超时"));
+        }, timeoutMs);
+        serverStartSettler = error => {
+          clearTimeout(timeoutId);
+          serverStartSettler = undefined;
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
+        };
+      });
+    }
+
+    function settleServerStart(error) {
+      if (serverStartSettler) {
+        serverStartSettler(error);
+      }
+    }
+
     function sendJson(payload) {
       socket.send(JSON.stringify(payload));
-      if (payload.type === "audio") {
-        writeLog("sent: audio wav base64 chars=" + payload.audioBase64.length);
-      } else {
-        writeLog("sent: " + JSON.stringify(payload));
-      }
-    }
-
-    function createWavBlob(buffers, sourceSampleRate, targetSampleRate) {
-      const samples = mergeBuffers(buffers);
-      if (samples.length === 0) {
-        throw new Error("没有录到音频");
-      }
-      const resampled = resampleLinear(samples, sourceSampleRate, targetSampleRate);
-      const wavBuffer = encodeWav16BitMono(resampled, targetSampleRate);
-      return new Blob([wavBuffer], { type: "audio/wav" });
-    }
-
-    function mergeBuffers(buffers) {
-      const length = buffers.reduce((sum, buffer) => sum + buffer.length, 0);
-      const result = new Float32Array(length);
-      let offset = 0;
-      for (const buffer of buffers) {
-        result.set(buffer, offset);
-        offset += buffer.length;
-      }
-      return result;
+      writeLog("sent: " + JSON.stringify(payload));
     }
 
     function resampleLinear(samples, sourceSampleRate, targetSampleRate) {
@@ -286,46 +302,15 @@
       return result;
     }
 
-    function encodeWav16BitMono(samples, sampleRate) {
-      const bytesPerSample = 2;
-      const headerBytes = 44;
-      const buffer = new ArrayBuffer(headerBytes + samples.length * bytesPerSample);
+    function encodePcm16(samples) {
+      const buffer = new ArrayBuffer(samples.length * 2);
       const view = new DataView(buffer);
-      writeAscii(view, 0, "RIFF");
-      view.setUint32(4, 36 + samples.length * bytesPerSample, true);
-      writeAscii(view, 8, "WAVE");
-      writeAscii(view, 12, "fmt ");
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true);
-      view.setUint16(22, 1, true);
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * bytesPerSample, true);
-      view.setUint16(32, bytesPerSample, true);
-      view.setUint16(34, 16, true);
-      writeAscii(view, 36, "data");
-      view.setUint32(40, samples.length * bytesPerSample, true);
-      let offset = headerBytes;
-      for (const sample of samples) {
+      for (let i = 0; i < samples.length; i++) {
+        const sample = samples[i];
         const clamped = Math.max(-1, Math.min(1, sample));
-        view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
-        offset += bytesPerSample;
+        view.setInt16(i * 2, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
       }
       return buffer;
-    }
-
-    function writeAscii(view, offset, text) {
-      for (let i = 0; i < text.length; i++) {
-        view.setUint8(offset + i, text.charCodeAt(i));
-      }
-    }
-
-    function blobToBase64(blob) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(String(reader.result).split(",")[1]);
-        reader.onerror = () => reject(new Error("音频读取失败"));
-        reader.readAsDataURL(blob);
-      });
     }
 
     function buildWebSocketUrl() {
@@ -351,7 +336,8 @@
       targetAgent.textContent = "等待路由";
       answer.textContent = "等待回复";
       log.textContent = "";
-      recordedBuffers = [];
+      sentAudioBytes = 0;
+      lastAudioLogAt = 0;
       if (!valueOf("voiceSessionId")) {
         voiceSessionIdInput.value = createVoiceSessionId();
       }

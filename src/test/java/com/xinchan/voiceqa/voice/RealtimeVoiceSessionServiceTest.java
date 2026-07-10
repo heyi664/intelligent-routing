@@ -4,6 +4,11 @@ import com.xinchan.voiceqa.api.ChatRequest;
 import com.xinchan.voiceqa.api.ChatResponse;
 import com.xinchan.voiceqa.asr.AsrClient;
 import com.xinchan.voiceqa.asr.AsrResult;
+import com.xinchan.voiceqa.asr.StreamingAsrClient;
+import com.xinchan.voiceqa.asr.StreamingAsrListener;
+import com.xinchan.voiceqa.asr.StreamingAsrRequest;
+import com.xinchan.voiceqa.asr.StreamingAsrResult;
+import com.xinchan.voiceqa.asr.StreamingAsrSession;
 import com.xinchan.voiceqa.observability.ObservabilityMetrics;
 import com.xinchan.voiceqa.routing.RouteTarget;
 import com.xinchan.voiceqa.routing.RouterService;
@@ -19,9 +24,105 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RealtimeVoiceSessionServiceTest {
+    @Test
+    void reportsStreamingAsrStartFailureOnlyOnce() {
+        List<String> outbound = new ArrayList<>();
+        StreamingAsrClient failingClient = (request, listener) -> {
+            IllegalStateException error = new IllegalStateException("realtime ASR connect failed");
+            listener.onError(error);
+            throw error;
+        };
+        RealtimeVoiceSessionService service = new RealtimeVoiceSessionService(
+            failingClient,
+            new RouterService(null, null, null, null, null, null),
+            new com.fasterxml.jackson.databind.ObjectMapper(),
+            new ObservabilityMetrics()
+        );
+
+        service.handleText(
+            "session-start-failure",
+            "{\"type\":\"start\",\"voiceSessionId\":\"v-failure\",\"conversationId\":\"c-failure\",\"userId\":\"u-1\"}",
+            outbound::add
+        );
+
+        assertEquals(1, outbound.stream().filter(message -> message.contains("\"type\":\"error\"")).count());
+        assertFalse(outbound.stream().anyMatch(message -> message.contains("\"type\":\"started\"")));
+    }
+
+    @Test
+    void forwardsPcmWhileRecordingAndRoutesOnlyAfterFinalAsrResult() {
+        byte[] pcmChunk = new byte[] {1, 2, 3, 4};
+        AtomicReference<StreamingAsrRequest> asrRequest = new AtomicReference<>();
+        AtomicReference<byte[]> audioSeenByAsr = new AtomicReference<>();
+        AtomicReference<StreamingAsrListener> asrListener = new AtomicReference<>();
+        AtomicReference<ChatRequest> requestSeenByRouter = new AtomicReference<>();
+        List<String> outbound = new ArrayList<>();
+
+        StreamingAsrClient streamingAsrClient = (request, listener) -> {
+            asrRequest.set(request);
+            asrListener.set(listener);
+            return new StreamingAsrSession() {
+                @Override
+                public void sendAudio(byte[] audioBytes) {
+                    audioSeenByAsr.set(audioBytes);
+                    listener.onResult(new StreamingAsrResult("家里闻到燃气", false, 0, 0, 320));
+                }
+
+                @Override
+                public void stop() {
+                    listener.onResult(new StreamingAsrResult("家里闻到燃气味怎么办", true, 0, 0, 900));
+                    listener.onComplete();
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        };
+        RouterService routerService = new RouterService(null, null, null, null, null, null) {
+            @Override
+            public ChatResponse routeStreaming(ChatRequest request, java.util.function.Consumer<String> deltaConsumer) {
+                requestSeenByRouter.set(request);
+                return new ChatResponse(request.conversationId(), RouteTarget.SAFETY_AGENT, "立即撤离并报修", "SAFETY_AGENT");
+            }
+        };
+        RealtimeVoiceSessionService service = new RealtimeVoiceSessionService(
+            streamingAsrClient,
+            routerService,
+            new com.fasterxml.jackson.databind.ObjectMapper(),
+            new ObservabilityMetrics()
+        );
+
+        service.handleText(
+            "session-live",
+            "{\"type\":\"start\",\"voiceSessionId\":\"v-live\",\"conversationId\":\"c-live\",\"userId\":\"u-live\",\"audioFormat\":\"pcm\",\"sampleRate\":16000}",
+            outbound::add
+        );
+        service.handleBinary("session-live", pcmChunk, outbound::add);
+
+        assertEquals("pcm", asrRequest.get().audioFormat());
+        assertEquals(16000, asrRequest.get().sampleRate());
+        assertArrayEquals(pcmChunk, audioSeenByAsr.get());
+        assertNotNull(asrListener.get());
+        assertTrue(outbound.stream().anyMatch(message -> message.contains("\"type\":\"asr_partial\"") && message.contains("家里闻到燃气")));
+        assertFalse(outbound.stream().anyMatch(message -> message.contains("\"type\":\"asr_final\"")));
+        assertEquals(null, requestSeenByRouter.get());
+
+        service.handleText("session-live", "{\"type\":\"end\"}", outbound::add);
+
+        assertEquals("家里闻到燃气味怎么办", requestSeenByRouter.get().message());
+        int partialIndex = indexOfType(outbound, "asr_partial");
+        int finalIndex = indexOfType(outbound, "asr_final");
+        int chatStartIndex = indexOfType(outbound, "chat_start");
+        assertTrue(partialIndex < finalIndex);
+        assertTrue(finalIndex < chatStartIndex);
+    }
+
     @Test
     void buffersAudioUntilEndThenRunsAsrAndRoutesTranscript() {
         byte[] firstChunk = "hello-".getBytes(StandardCharsets.UTF_8);
@@ -112,5 +213,14 @@ class RealtimeVoiceSessionServiceTest {
     }
     private String audioMessage(byte[] audioBytes) {
         return "{\"type\":\"audio\",\"audioBase64\":\"" + Base64.getEncoder().encodeToString(audioBytes) + "\"}";
+    }
+
+    private static int indexOfType(List<String> messages, String type) {
+        for (int index = 0; index < messages.size(); index++) {
+            if (messages.get(index).contains("\"type\":\"" + type + "\"")) {
+                return index;
+            }
+        }
+        return -1;
     }
 }

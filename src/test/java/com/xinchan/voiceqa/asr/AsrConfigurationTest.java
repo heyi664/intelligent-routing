@@ -15,6 +15,8 @@ class AsrConfigurationTest {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(AsrClient.class);
             assertThat(context.getBean(AsrClient.class)).isInstanceOf(MockAsrClient.class);
+            assertThat(context).hasSingleBean(StreamingAsrClient.class);
+            assertThat(context.getBean(StreamingAsrClient.class)).isInstanceOf(BufferedStreamingAsrClient.class);
         });
     }
 
@@ -23,12 +25,15 @@ class AsrConfigurationTest {
         contextRunner
             .withPropertyValues(
                 "app.asr.provider=tencent",
+                "app.asr.app-id=1234567890",
                 "app.asr.secret-id=test-secret-id",
                 "app.asr.secret-key=test-secret-key"
             )
             .run(context -> {
                 assertThat(context).hasSingleBean(AsrClient.class);
                 assertThat(context.getBean(AsrClient.class)).isInstanceOf(TencentAsrSdkClient.class);
+                assertThat(context).hasSingleBean(StreamingAsrClient.class);
+                assertThat(context.getBean(StreamingAsrClient.class)).isInstanceOf(TencentAsrRealtimeApiClient.class);
                 assertThat(context.getBean(TencentAsrConfig.class).secretId()).isEqualTo("test-secret-id");
                 assertThat(context.getBean(TencentAsrConfig.class).secretKey()).isEqualTo("test-secret-key");
             });
@@ -38,6 +43,7 @@ class AsrConfigurationTest {
         contextRunner
             .withPropertyValues(
                 "app.asr.provider=tencent",
+                "app.asr.app-id=1234567890",
                 "app.asr.secret-id=test\n-secret-id",
                 "app.asr.secret-key=test-secret\r\n-key"
             )

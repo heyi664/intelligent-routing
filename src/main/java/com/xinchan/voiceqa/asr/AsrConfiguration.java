@@ -16,6 +16,12 @@ public class AsrConfiguration {
     }
 
     @Bean
+    @ConditionalOnProperty(prefix = "app.asr", name = "provider", havingValue = "mock", matchIfMissing = true)
+    public StreamingAsrClient mockStreamingAsrClient(AsrClient asrClient) {
+        return new BufferedStreamingAsrClient(asrClient);
+    }
+
+    @Bean
     @ConditionalOnProperty(prefix = "app.asr", name = "provider", havingValue = "tencent")
     public TencentAsrConfig tencentAsrConfig(AsrProperties properties) {
         return new TencentAsrConfig(
@@ -39,5 +45,24 @@ public class AsrConfiguration {
     @ConditionalOnProperty(prefix = "app.asr", name = "provider", havingValue = "tencent")
     public AsrClient tencentAsrClient(TencentAsrConfig config, TencentAsrSdkInvoker sdkInvoker) {
         return new TencentAsrSdkClient(config, sdkInvoker);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "app.asr", name = "provider", havingValue = "tencent")
+    public TencentRealtimeAsrConfig tencentRealtimeAsrConfig(AsrProperties properties) {
+        return new TencentRealtimeAsrConfig(
+            properties.getAppId(),
+            properties.getSecretId(),
+            properties.getSecretKey(),
+            properties.getEngineModelType(),
+            properties.getRealtimeTimeoutMs(),
+            properties.getRealtimeVadSilenceTimeMs()
+        ).validate();
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "app.asr", name = "provider", havingValue = "tencent")
+    public StreamingAsrClient tencentStreamingAsrClient(TencentRealtimeAsrConfig config) {
+        return new TencentAsrRealtimeApiClient(config);
     }
 }
